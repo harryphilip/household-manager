@@ -10,6 +10,22 @@ import pdfplumber
 from io import BytesIO
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
+from PIL import Image
+
+# Optional OCR imports
+try:
+    import pytesseract
+    PYTESSERACT_AVAILABLE = True
+except ImportError:
+    PYTESSERACT_AVAILABLE = False
+    pytesseract = None
+
+try:
+    import easyocr
+    EASYOCR_AVAILABLE = True
+except ImportError:
+    EASYOCR_AVAILABLE = False
+    easyocr = None
 
 
 def search_manual_online(brand, model_number, appliance_name):
@@ -243,4 +259,176 @@ def extract_maintenance_with_ai(text, appliance_type=None):
     except Exception as e:
         print(f"AI extraction error: {e}")
         return extract_maintenance_info(text, appliance_type)
+
+
+def extract_text_from_image(image_file):
+    """
+    Extract text from an image using OCR.
+    Returns the extracted text as a string.
+    """
+    text = ""
+    
+    try:
+        # Open and process image
+        image = Image.open(image_file)
+        
+        # Try EasyOCR first (more accurate but slower)
+        if EASYOCR_AVAILABLE:
+            try:
+                import numpy as np
+                # Convert PIL Image to numpy array for EasyOCR
+                img_array = np.array(image)
+                reader = easyocr.Reader(['en'], gpu=False)
+                results = reader.readtext(img_array)
+                text = ' '.join([result[1] for result in results])
+                if text:
+                    return text
+            except Exception as e:
+                print(f"EasyOCR error: {e}, falling back to Tesseract")
+        
+        # Fallback to Tesseract OCR
+        if PYTESSERACT_AVAILABLE:
+            try:
+                text = pytesseract.image_to_string(image, lang='eng')
+            except Exception as e:
+                print(f"Tesseract OCR error: {e}")
+                # If pytesseract is not configured, try basic OCR
+                try:
+                    text = pytesseract.image_to_string(image)
+                except Exception as e2:
+                    print(f"OCR failed: {e2}")
+                    return ""
+        else:
+            print("OCR libraries not available. Please install pytesseract or easyocr.")
+            return ""
+        
+        return text.strip()
+    except Exception as e:
+        print(f"Error processing image: {e}")
+        return ""
+
+
+def parse_appliance_info_from_text(text):
+    """
+    Parse appliance information (brand, model, serial number) from OCR text.
+    Returns a dictionary with extracted information.
+    """
+    if not text:
+        return {
+            'brand': None,
+            'model_number': None,
+            'serial_number': None,
+        }
+    
+    # Normalize text - remove extra whitespace, convert to uppercase for matching
+    normalized_text = ' '.join(text.split())
+    text_upper = normalized_text.upper()
+    
+    info = {
+        'brand': None,
+        'model_number': None,
+        'serial_number': None,
+    }
+    
+    # Common brand patterns (add more as needed)
+    brands = [
+        'SAMSUNG', 'LG', 'WHIRLPOOL', 'MAYTAG', 'KITCHENAID', 'BOSCH', 
+        'GE', 'GENERAL ELECTRIC', 'FRIGIDAIRE', 'ELECTROLUX', 'KENMORE',
+        'PANASONIC', 'SHARP', 'TOSHIBA', 'HITACHI', 'DAIKIN', 'CARRIER',
+        'TRANE', 'LENNOX', 'RHEEM', 'A.O. SMITH', 'BRADFORD WHITE'
+    ]
+    
+    # Find brand
+    for brand in brands:
+        if brand in text_upper:
+            info['brand'] = brand.title()
+            break
+    
+    # Model number patterns (usually alphanumeric, often contains dashes)
+    # Common patterns: MODEL: XXX, Model No: XXX, Model# XXX, etc.
+    model_patterns = [
+        r'MODEL[:\s#]+([A-Z0-9\-]+)',
+        r'MODEL\s+NO[:\s#]+([A-Z0-9\-]+)',
+        r'MODEL\s+NUMBER[:\s#]+([A-Z0-9\-]+)',
+        r'MOD[:\s#]+([A-Z0-9\-]+)',
+    ]
+    
+    for pattern in model_patterns:
+        match = re.search(pattern, text_upper, re.IGNORECASE)
+        if match:
+            model = match.group(1).strip()
+            # Filter out very short or invalid model numbers
+            if len(model) >= 3 and len(model) <= 30:
+                info['model_number'] = model
+                break
+    
+    # Serial number patterns (more specific to avoid matching "NUMBER" as serial)
+    # Order matters - check SN and S/N first (more specific)
+    serial_patterns = [
+        (r'SN[:\s#]+([A-Z0-9\-]{5,50})', True),  # SN: followed by alphanumeric
+        (r'S/N[:\s#]+([A-Z0-9\-]{5,50})', True),  # S/N: followed by alphanumeric
+        (r'SERIAL\s+NO[:\s#]+([A-Z0-9\-]{5,50})', True),  # SERIAL NO: followed by alphanumeric
+        (r'SERIAL[:\s#]+([A-Z0-9\-]{5,50})', True),  # SERIAL: followed by alphanumeric
+        (r'SERIAL\s+NUMBER[:\s#]+([A-Z0-9\-]{5,50})', True),  # SERIAL NUMBER: followed by alphanumeric
+    ]
+    
+    for pattern, _ in serial_patterns:
+        match = re.search(pattern, text_upper, re.IGNORECASE)
+        if match:
+            serial = match.group(1).strip()
+            # Additional validation: should not be just "NUMBER" or common words
+            if serial and serial not in ['NUMBER', 'NO', 'NUM'] and len(serial) >= 5:
+                info['serial_number'] = serial
+                break
+    
+    # If no model found with patterns, try to find alphanumeric codes
+    if not info['model_number']:
+        # Look for patterns like: ABC123, ABC-123, ABC123-XYZ
+        model_candidate = re.search(r'\b([A-Z]{2,4}[-]?[0-9]{3,6}[A-Z0-9\-]*)\b', text_upper)
+        if model_candidate:
+            candidate = model_candidate.group(1)
+            if 5 <= len(candidate) <= 20:
+                info['model_number'] = candidate
+    
+    # If no serial found, look for long alphanumeric strings
+    if not info['serial_number']:
+        # Look for longer alphanumeric strings (serial numbers are usually longer)
+        serial_candidate = re.search(r'\b([A-Z0-9]{8,20})\b', text_upper)
+        if serial_candidate:
+            candidate = serial_candidate.group(1)
+            # Make sure it's not the model number
+            if candidate != info.get('model_number', ''):
+                info['serial_number'] = candidate
+    
+    return info
+
+
+def extract_appliance_info_from_image(image_file):
+    """
+    Complete workflow: Extract text from image and parse appliance information.
+    Returns a dictionary with brand, model_number, and serial_number.
+    """
+    # Extract text from image
+    text = extract_text_from_image(image_file)
+    
+    if not text:
+        return {
+            'success': False,
+            'error': 'Could not extract text from image. Please ensure the image is clear and readable.',
+            'extracted_text': '',
+            'brand': None,
+            'model_number': None,
+            'serial_number': None,
+        }
+    
+    # Parse information from text
+    info = parse_appliance_info_from_text(text)
+    
+    return {
+        'success': True,
+        'extracted_text': text,
+        'brand': info.get('brand'),
+        'model_number': info.get('model_number'),
+        'serial_number': info.get('serial_number'),
+    }
 

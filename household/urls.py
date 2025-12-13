@@ -37,6 +37,9 @@ urlpatterns = [
     path('appliances/<int:pk>/download-manual/', views.download_manual, name='download_manual'),
     path('appliances/<int:pk>/extract-maintenance/', views.extract_maintenance, name='extract_maintenance'),
     
+    # OCR/Label extraction
+    path('appliances/extract-label-info/', views.extract_info_from_label, name='extract_label_info'),
+    
     # Maintenance Task URLs
     path('maintenance/', views.MaintenanceTaskListView.as_view(), name='maintenance_task_list'),
     path('maintenance/<int:pk>/', views.MaintenanceTaskDetailView.as_view(), name='maintenance_task_detail'),

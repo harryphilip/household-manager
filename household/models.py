@@ -102,6 +102,7 @@ class Appliance(models.Model):
     purchase_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     manual_pdf = models.FileField(upload_to='manuals/', blank=True, null=True, help_text="User manual PDF")
     manual_url = models.URLField(blank=True, help_text="URL to the manual if found online")
+    label_image = models.ImageField(upload_to='appliance_labels/', blank=True, null=True, help_text="Photo of appliance label/serial number plate")
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

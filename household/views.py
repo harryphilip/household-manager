@@ -6,10 +6,12 @@ from django.http import JsonResponse, HttpResponse
 from django.views.decorators.http import require_http_methods
 from django.utils import timezone
 from datetime import date
+import json
 from .models import Room, Appliance, Vendor, Invoice, MaintenanceTask
 from .utils import (
     search_manual_online, download_pdf, extract_text_from_pdf,
-    extract_maintenance_info, extract_maintenance_with_ai
+    extract_maintenance_info, extract_maintenance_with_ai,
+    extract_appliance_info_from_image
 )
 
 
@@ -90,7 +92,8 @@ class ApplianceCreateView(CreateView):
     model = Appliance
     template_name = 'household/appliance_form.html'
     fields = ['name', 'brand', 'model_number', 'serial_number', 'appliance_type', 
-              'room', 'purchase_date', 'warranty_expiry', 'purchase_price', 'manual_pdf', 'notes']
+              'room', 'purchase_date', 'warranty_expiry', 'purchase_price', 
+              'label_image', 'manual_pdf', 'notes']
     success_url = reverse_lazy('appliance_list')
 
     def form_valid(self, form):
@@ -102,7 +105,8 @@ class ApplianceUpdateView(UpdateView):
     model = Appliance
     template_name = 'household/appliance_form.html'
     fields = ['name', 'brand', 'model_number', 'serial_number', 'appliance_type', 
-              'room', 'purchase_date', 'warranty_expiry', 'purchase_price', 'manual_pdf', 'notes']
+              'room', 'purchase_date', 'warranty_expiry', 'purchase_price', 
+              'label_image', 'manual_pdf', 'notes']
     success_url = reverse_lazy('appliance_list')
 
     def form_valid(self, form):
@@ -390,6 +394,40 @@ def mark_maintenance_complete(request, pk):
     task.save()
     messages.success(request, f'Maintenance task "{task.task_name}" marked as complete!')
     return redirect('appliance_detail', pk=task.appliance.pk)
+
+
+@require_http_methods(["POST"])
+def extract_info_from_label(request):
+    """Extract appliance information from uploaded label image."""
+    if 'label_image' not in request.FILES:
+        return JsonResponse({
+            'success': False,
+            'error': 'No image file provided'
+        }, status=400)
+    
+    image_file = request.FILES['label_image']
+    
+    # Validate file type
+    if not image_file.content_type.startswith('image/'):
+        return JsonResponse({
+            'success': False,
+            'error': 'File must be an image'
+        }, status=400)
+    
+    try:
+        # Extract information from image
+        result = extract_appliance_info_from_image(image_file)
+        
+        return JsonResponse(result)
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': f'Error processing image: {str(e)}',
+            'extracted_text': '',
+            'brand': None,
+            'model_number': None,
+            'serial_number': None,
+        }, status=500)
 
 
 

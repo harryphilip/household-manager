@@ -19,6 +19,9 @@
         <p><strong>Brand:</strong> {{ appliance.brand|default:"—" }}</p>
         <p><strong>Model Number:</strong> {{ appliance.model_number|default:"—" }}</p>
         <p><strong>Serial Number:</strong> {{ appliance.serial_number|default:"—" }}</p>
+        {% if appliance.label_image %}
+        <p><strong>Label Image:</strong> <a href="{{ appliance.label_image.url }}" target="_blank" style="color: #667eea;">View Image</a></p>
+        {% endif %}
         <p><strong>Type:</strong> {{ appliance.get_appliance_type_display }}</p>
         <p><strong>Room:</strong> {% if appliance.room %}<a href="{% url 'room_detail' appliance.room.pk %}" style="color: #667eea;">{{ appliance.room.name }}</a>{% else %}—{% endif %}</p>
         {% if appliance.purchase_date %}

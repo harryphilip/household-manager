@@ -4,6 +4,9 @@ Tests for household views.
 from django.test import TestCase, Client
 from django.urls import reverse
 from django.contrib.auth.models import User
+from django.core.files.uploadedfile import SimpleUploadedFile
+from PIL import Image
+from io import BytesIO
 from household.models import Room, Appliance, Vendor, Invoice, MaintenanceTask
 from datetime import date
 
@@ -239,4 +242,127 @@ class InvoiceViewTest(TestCase):
         response = self.client.get(reverse('invoice_detail', args=[self.invoice.pk]))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, self.invoice.invoice_number)
+
+
+class ExtractLabelInfoViewTest(TestCase):
+    """Test cases for extract_label_info view."""
+    
+    def setUp(self):
+        """Set up test data."""
+        self.client = Client()
+    
+    def create_test_image(self):
+        """Create a test image file."""
+        image = Image.new('RGB', (100, 100), color='white')
+        image_file = BytesIO()
+        image.save(image_file, format='PNG')
+        image_file.seek(0)
+        return SimpleUploadedFile(
+            "test_label.png",
+            image_file.read(),
+            content_type="image/png"
+        )
+    
+    def test_extract_label_info_success(self):
+        """Test successful label info extraction."""
+        from unittest.mock import patch
+        
+        image_file = self.create_test_image()
+        
+        with patch('household.views.extract_appliance_info_from_image') as mock_extract:
+            mock_extract.return_value = {
+                'success': True,
+                'extracted_text': 'SAMSUNG MODEL RF28R7351SG SERIAL SN123456',
+                'brand': 'Samsung',
+                'model_number': 'RF28R7351SG',
+                'serial_number': 'SN123456'
+            }
+            
+            response = self.client.post(
+                reverse('extract_label_info'),
+                {'label_image': image_file},
+                format='multipart'
+            )
+            
+            self.assertEqual(response.status_code, 200)
+            data = response.json()
+            self.assertTrue(data['success'])
+            self.assertEqual(data['brand'], 'Samsung')
+            self.assertEqual(data['model_number'], 'RF28R7351SG')
+            self.assertEqual(data['serial_number'], 'SN123456')
+    
+    def test_extract_label_info_no_file(self):
+        """Test extraction without image file."""
+        response = self.client.post(reverse('extract_label_info'))
+        
+        self.assertEqual(response.status_code, 400)
+        data = response.json()
+        self.assertFalse(data['success'])
+        self.assertIn('error', data)
+    
+    def test_extract_label_info_invalid_file(self):
+        """Test extraction with non-image file."""
+        invalid_file = SimpleUploadedFile(
+            "test.txt",
+            b"not an image",
+            content_type="text/plain"
+        )
+        
+        response = self.client.post(
+            reverse('extract_label_info'),
+            {'label_image': invalid_file},
+            format='multipart'
+        )
+        
+        self.assertEqual(response.status_code, 400)
+        data = response.json()
+        self.assertFalse(data['success'])
+        self.assertIn('error', data)
+    
+    def test_extract_label_info_extraction_error(self):
+        """Test handling of extraction errors."""
+        from unittest.mock import patch
+        
+        image_file = self.create_test_image()
+        
+        with patch('household.views.extract_appliance_info_from_image') as mock_extract:
+            mock_extract.side_effect = Exception("OCR processing error")
+            
+            response = self.client.post(
+                reverse('extract_label_info'),
+                {'label_image': image_file},
+                format='multipart'
+            )
+            
+            self.assertEqual(response.status_code, 500)
+            data = response.json()
+            self.assertFalse(data['success'])
+            self.assertIn('error', data)
+    
+    def test_extract_label_info_no_text_found(self):
+        """Test extraction when no text is found in image."""
+        from unittest.mock import patch
+        
+        image_file = self.create_test_image()
+        
+        with patch('household.views.extract_appliance_info_from_image') as mock_extract:
+            mock_extract.return_value = {
+                'success': False,
+                'error': 'Could not extract text from image',
+                'extracted_text': '',
+                'brand': None,
+                'model_number': None,
+                'serial_number': None
+            }
+            
+            response = self.client.post(
+                reverse('extract_label_info'),
+                {'label_image': image_file},
+                format='multipart'
+            )
+            
+            self.assertEqual(response.status_code, 200)
+            data = response.json()
+            self.assertFalse(data['success'])
+            self.assertIn('error', data)
 

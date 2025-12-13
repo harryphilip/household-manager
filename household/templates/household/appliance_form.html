@@ -2,10 +2,73 @@
 
 {% block title %}{% if object %}Edit Appliance{% else %}Create Appliance{% endif %} - Household Manager{% endblock %}
 
+{% block extra_css %}
+<style>
+    .ocr-section {
+        background: #f8f9fa;
+        border: 2px dashed #667eea;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+    .ocr-section h3 {
+        color: #667eea;
+        margin-top: 0;
+    }
+    .ocr-preview {
+        max-width: 100%;
+        max-height: 300px;
+        margin: 10px 0;
+        border-radius: 4px;
+        display: none;
+    }
+    .ocr-results {
+        background: white;
+        padding: 15px;
+        border-radius: 6px;
+        margin-top: 15px;
+        display: none;
+    }
+    .ocr-loading {
+        display: none;
+        color: #667eea;
+        font-weight: bold;
+    }
+    .ocr-success {
+        color: #28a745;
+    }
+    .ocr-error {
+        color: #dc3545;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <h1>{% if object %}Edit Appliance{% else %}Create New Appliance{% endif %}</h1>
 
-<form method="post" enctype="multipart/form-data">
+<div class="ocr-section">
+    <h3>📷 Scan Appliance Label (Optional)</h3>
+    <p>Take a photo of the appliance label or serial number plate to automatically extract brand, model, and serial number.</p>
+    
+    <div class="form-group">
+        <label for="label_image_input">Upload Label Image</label>
+        <input type="file" id="label_image_input" accept="image/*" capture="environment" style="padding: 8px;">
+        <button type="button" id="extract_info_btn" class="btn" style="margin-left: 10px; padding: 8px 16px;">Extract Information</button>
+    </div>
+    
+    <img id="image_preview" class="ocr-preview" alt="Label preview">
+    
+    <div id="ocr_loading" class="ocr-loading">
+        Processing image... Please wait.
+    </div>
+    
+    <div id="ocr_results" class="ocr-results">
+        <h4>Extracted Information:</h4>
+        <div id="extracted_info"></div>
+    </div>
+</div>
+
+<form method="post" enctype="multipart/form-data" id="appliance_form">
     {% csrf_token %}
     <div class="form-group">
         <label for="id_name">Name *</label>
@@ -44,6 +107,11 @@
         {{ form.purchase_price }}
     </div>
     <div class="form-group">
+        <label for="id_label_image">Label Image</label>
+        {{ form.label_image }}
+        <small style="color: #666;">Photo of appliance label/serial number plate (for reference)</small>
+    </div>
+    <div class="form-group">
         <label for="id_manual_pdf">Manual PDF</label>
         {{ form.manual_pdf }}
         <small style="color: #666;">Upload a user manual PDF file. You can also search for it online after creating the appliance.</small>
@@ -57,6 +125,117 @@
         <a href="{% if object %}{% url 'appliance_detail' object.pk %}{% else %}{% url 'appliance_list' %}{% endif %}" class="btn btn-secondary">Cancel</a>
     </div>
 </form>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const labelInput = document.getElementById('label_image_input');
+    const extractBtn = document.getElementById('extract_info_btn');
+    const imagePreview = document.getElementById('image_preview');
+    const ocrLoading = document.getElementById('ocr_loading');
+    const ocrResults = document.getElementById('ocr_results');
+    const extractedInfo = document.getElementById('extracted_info');
+    const brandField = document.getElementById('id_brand');
+    const modelField = document.getElementById('id_model_number');
+    const serialField = document.getElementById('id_serial_number');
+    const labelImageField = document.getElementById('id_label_image');
+    
+    // Show image preview when file is selected
+    labelInput.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                imagePreview.src = e.target.result;
+                imagePreview.style.display = 'block';
+            };
+            reader.readAsDataURL(file);
+        }
+    });
+    
+    // Extract information from image
+    extractBtn.addEventListener('click', function() {
+        const file = labelInput.files[0];
+        if (!file) {
+            alert('Please select an image first');
+            return;
+        }
+        
+        // Show loading
+        ocrLoading.style.display = 'block';
+        ocrResults.style.display = 'none';
+        extractBtn.disabled = true;
+        extractBtn.textContent = 'Processing...';
+        
+        // Create form data
+        const formData = new FormData();
+        formData.append('label_image', file);
+        
+        // Send to server
+        fetch('{% url "extract_label_info" %}', {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            ocrLoading.style.display = 'none';
+            extractBtn.disabled = false;
+            extractBtn.textContent = 'Extract Information';
+            
+            if (data.success) {
+                // Show results
+                ocrResults.style.display = 'block';
+                let html = '<div class="ocr-success">';
+                
+                if (data.brand) {
+                    html += `<p><strong>Brand:</strong> ${data.brand}</p>`;
+                    brandField.value = data.brand;
+                }
+                if (data.model_number) {
+                    html += `<p><strong>Model Number:</strong> ${data.model_number}</p>`;
+                    modelField.value = data.model_number;
+                }
+                if (data.serial_number) {
+                    html += `<p><strong>Serial Number:</strong> ${data.serial_number}</p>`;
+                    serialField.value = data.serial_number;
+                }
+                
+                if (!data.brand && !data.model_number && !data.serial_number) {
+                    html = '<div class="ocr-error"><p>Could not extract information from image. Please try a clearer photo or enter manually.</p>';
+                    if (data.extracted_text) {
+                        html += `<p><small>Extracted text: ${data.extracted_text.substring(0, 200)}...</small></p>`;
+                    }
+                    html += '</div>';
+                } else {
+                    html += '<p style="color: #28a745; margin-top: 10px;">✓ Information has been auto-filled in the form above!</p>';
+                }
+                
+                html += '</div>';
+                extractedInfo.innerHTML = html;
+                
+                // Also set the label image field
+                const dataTransfer = new DataTransfer();
+                dataTransfer.items.add(file);
+                labelImageField.files = dataTransfer.files;
+            } else {
+                ocrResults.style.display = 'block';
+                extractedInfo.innerHTML = `<div class="ocr-error"><p>Error: ${data.error || 'Unknown error'}</p></div>`;
+            }
+        })
+        .catch(error => {
+            ocrLoading.style.display = 'none';
+            extractBtn.disabled = false;
+            extractBtn.textContent = 'Extract Information';
+            ocrResults.style.display = 'block';
+            extractedInfo.innerHTML = `<div class="ocr-error"><p>Error processing image: ${error.message}</p></div>`;
+        });
+    });
+});
+</script>
 {% endblock %}
 
 
