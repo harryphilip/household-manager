@@ -170,6 +170,34 @@ class Appliance(models.Model):
         return reverse('appliance_detail', kwargs={'pk': self.pk})
 
 
+class InvoiceLineItem(models.Model):
+    """Model representing a line item on an invoice."""
+    invoice = models.ForeignKey('Invoice', on_delete=models.CASCADE, related_name='line_items')
+    description = models.CharField(max_length=500, help_text="Description of the line item")
+    quantity = models.DecimalField(max_digits=10, decimal_places=2, default=1, help_text="Quantity")
+    unit_price = models.DecimalField(max_digits=10, decimal_places=2, help_text="Price per unit")
+    line_total = models.DecimalField(max_digits=10, decimal_places=2, help_text="Total for this line (quantity × unit_price)")
+    
+    # Many-to-many relationships to rooms and appliances
+    rooms = models.ManyToManyField(Room, blank=True, related_name='invoice_line_items', help_text="Rooms associated with this line item")
+    appliances = models.ManyToManyField(Appliance, blank=True, related_name='invoice_line_items', help_text="Appliances associated with this line item")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['invoice', 'id']
+
+    def __str__(self):
+        return f"{self.invoice.invoice_number} - {self.description}"
+
+    def save(self, *args, **kwargs):
+        # Auto-calculate line_total if not provided
+        if not self.line_total:
+            self.line_total = self.quantity * self.unit_price
+        super().save(*args, **kwargs)
+
+
 class Invoice(models.Model):
     """Model representing a past invoice/bill."""
     house = models.ForeignKey(House, on_delete=models.CASCADE, related_name='invoices', null=True, blank=True)
@@ -177,9 +205,12 @@ class Invoice(models.Model):
     vendor = models.ForeignKey(Vendor, on_delete=models.SET_NULL, null=True, blank=True, related_name='invoices')
     invoice_date = models.DateField()
     due_date = models.DateField(null=True, blank=True)
-    amount = models.DecimalField(max_digits=10, decimal_places=2)
-    tax_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    total_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    
+    # Legacy fields - kept for backward compatibility, but will be calculated from line items if available
+    amount = models.DecimalField(max_digits=10, decimal_places=2, help_text="Subtotal (calculated from line items if available)")
+    tax_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0, help_text="Total tax amount")
+    total_amount = models.DecimalField(max_digits=10, decimal_places=2, help_text="Grand total (amount + tax_amount)")
+    
     category = models.CharField(
         max_length=50,
         choices=[
@@ -193,7 +224,7 @@ class Invoice(models.Model):
         ],
         default='other'
     )
-    description = models.TextField(blank=True)
+    description = models.TextField(blank=True, help_text="General invoice description/notes")
     paid = models.BooleanField(default=False)
     paid_date = models.DateField(null=True, blank=True)
     payment_method = models.CharField(
@@ -209,6 +240,7 @@ class Invoice(models.Model):
         blank=True
     )
     invoice_file = models.FileField(upload_to='invoices/', blank=True, null=True)
+    # Legacy field - kept for backward compatibility
     related_appliance = models.ForeignKey(Appliance, on_delete=models.SET_NULL, null=True, blank=True, related_name='invoices')
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -224,8 +256,26 @@ class Invoice(models.Model):
     def get_absolute_url(self):
         return reverse('invoice_detail', kwargs={'pk': self.pk})
 
+    def calculate_amount_from_line_items(self):
+        """Calculate invoice amount from line items."""
+        if self.line_items.exists():
+            return sum(item.line_total for item in self.line_items.all())
+        return self.amount or 0
+
+    def calculate_total(self):
+        """Calculate total amount including tax."""
+        amount = self.calculate_amount_from_line_items()
+        return amount + self.tax_amount
+
     def save(self, *args, **kwargs):
-        if not self.total_amount:
+        # Auto-calculate from line items if they exist (only if invoice is saved)
+        if self.pk and self.line_items.exists():
+            calculated_amount = self.calculate_amount_from_line_items()
+            if not self.amount or self.amount != calculated_amount:
+                self.amount = calculated_amount
+            self.total_amount = self.calculate_total()
+        elif not self.total_amount:
+            # Fallback to old calculation if no line items
             self.total_amount = self.amount + self.tax_amount
         super().save(*args, **kwargs)
 

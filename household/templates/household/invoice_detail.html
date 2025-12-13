@@ -20,8 +20,65 @@
         {% if invoice.due_date %}
         <p><strong>Due Date:</strong> {{ invoice.due_date }}</p>
         {% endif %}
+        {% if line_items %}
+        <h3 style="margin-top: 30px;">Line Items</h3>
+        <table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
+            <thead>
+                <tr style="background: #f8f9fa; border-bottom: 2px solid #e0e0e0;">
+                    <th style="padding: 12px; text-align: left;">Description</th>
+                    <th style="padding: 12px; text-align: right;">Quantity</th>
+                    <th style="padding: 12px; text-align: right;">Unit Price</th>
+                    <th style="padding: 12px; text-align: right;">Line Total</th>
+                    <th style="padding: 12px; text-align: left;">Rooms</th>
+                    <th style="padding: 12px; text-align: left;">Appliances</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in line_items %}
+                <tr style="border-bottom: 1px solid #e0e0e0;">
+                    <td style="padding: 12px;">{{ item.description }}</td>
+                    <td style="padding: 12px; text-align: right;">{{ item.quantity|floatformat:2 }}</td>
+                    <td style="padding: 12px; text-align: right;">${{ item.unit_price|floatformat:2 }}</td>
+                    <td style="padding: 12px; text-align: right; font-weight: bold;">${{ item.line_total|floatformat:2 }}</td>
+                    <td style="padding: 12px;">
+                        {% if item.rooms.all %}
+                            {% for room in item.rooms.all %}{{ room.name }}{% if not forloop.last %}, {% endif %}{% endfor %}
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+                    <td style="padding: 12px;">
+                        {% if item.appliances.all %}
+                            {% for appliance in item.appliances.all %}<a href="{% url 'appliance_detail' appliance.pk %}" style="color: #667eea;">{{ appliance.name }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr style="background: #f8f9fa; border-top: 2px solid #e0e0e0;">
+                    <td colspan="3" style="padding: 12px; text-align: right; font-weight: bold;">Subtotal:</td>
+                    <td style="padding: 12px; text-align: right; font-weight: bold;">${{ invoice.amount|floatformat:2 }}</td>
+                    <td colspan="2"></td>
+                </tr>
+                <tr>
+                    <td colspan="3" style="padding: 12px; text-align: right; font-weight: bold;">Tax:</td>
+                    <td style="padding: 12px; text-align: right; font-weight: bold;">${{ invoice.tax_amount|floatformat:2 }}</td>
+                    <td colspan="2"></td>
+                </tr>
+                <tr style="background: #667eea; color: white;">
+                    <td colspan="3" style="padding: 12px; text-align: right; font-weight: bold; font-size: 1.1em;">Total:</td>
+                    <td style="padding: 12px; text-align: right; font-weight: bold; font-size: 1.1em;">${{ invoice.total_amount|floatformat:2 }}</td>
+                    <td colspan="2"></td>
+                </tr>
+            </tfoot>
+        </table>
+        {% else %}
         <p><strong>Amount:</strong> ${{ invoice.amount|floatformat:2 }}</p>
         <p><strong>Tax Amount:</strong> ${{ invoice.tax_amount|floatformat:2 }}</p>
+        {% endif %}
         <p><strong>Total Amount:</strong> <strong style="font-size: 1.2em; color: #667eea;">${{ invoice.total_amount|floatformat:2 }}</strong></p>
         <p><strong>Category:</strong> {{ invoice.get_category_display }}</p>
         <p><strong>Paid:</strong> {% if invoice.paid %}✓ Yes{% else %}✗ No{% endif %}</p>

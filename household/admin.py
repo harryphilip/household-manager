@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import House, Room, Appliance, Vendor, Invoice, MaintenanceTask
+from .models import House, Room, Appliance, Vendor, Invoice, InvoiceLineItem, MaintenanceTask
 
 
 @admin.register(House)
@@ -36,6 +36,22 @@ class ApplianceAdmin(admin.ModelAdmin):
     date_hierarchy = 'purchase_date'
 
 
+class InvoiceLineItemInline(admin.TabularInline):
+    """Inline admin for invoice line items."""
+    model = InvoiceLineItem
+    extra = 1
+    fields = ['description', 'quantity', 'unit_price', 'line_total', 'rooms', 'appliances']
+    autocomplete_fields = ['rooms', 'appliances']
+
+
+@admin.register(InvoiceLineItem)
+class InvoiceLineItemAdmin(admin.ModelAdmin):
+    list_display = ['invoice', 'description', 'quantity', 'unit_price', 'line_total']
+    list_filter = ['invoice__house', 'invoice__invoice_date']
+    search_fields = ['description', 'invoice__invoice_number']
+    autocomplete_fields = ['rooms', 'appliances']
+
+
 @admin.register(Invoice)
 class InvoiceAdmin(admin.ModelAdmin):
     list_display = ['invoice_number', 'house', 'vendor', 'invoice_date', 'total_amount', 'paid', 'category']
@@ -44,6 +60,7 @@ class InvoiceAdmin(admin.ModelAdmin):
     ordering = ['-invoice_date']
     date_hierarchy = 'invoice_date'
     readonly_fields = ['created_at', 'updated_at']
+    inlines = [InvoiceLineItemInline]
 
 
 @admin.register(MaintenanceTask)

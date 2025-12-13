@@ -23,17 +23,62 @@
         <label for="id_due_date">Due Date</label>
         {{ form.due_date }}
     </div>
+    {% if form.house %}
     <div class="form-group">
-        <label for="id_amount">Amount *</label>
-        {{ form.amount }}
+        <label for="id_house">House *</label>
+        {{ form.house }}
     </div>
+    {% endif %}
+    
+    <h2 style="margin-top: 30px; margin-bottom: 20px;">Line Items</h2>
+    <p style="color: #666; margin-bottom: 15px;">Add line items to break down the invoice. Each line item can be associated with specific rooms and/or appliances.</p>
+    <div id="line-items-container">
+        {{ line_items.management_form }}
+        <table id="line-items-table" style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+            <thead>
+                <tr style="background: #f8f9fa; border-bottom: 2px solid #e0e0e0;">
+                    <th style="padding: 8px;">Description</th>
+                    <th style="padding: 8px; width: 100px;">Quantity</th>
+                    <th style="padding: 8px; width: 120px;">Unit Price</th>
+                    <th style="padding: 8px; width: 120px;">Line Total</th>
+                    <th style="padding: 8px;">Rooms</th>
+                    <th style="padding: 8px;">Appliances</th>
+                    <th style="padding: 8px; width: 60px;">Delete</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for form in line_items.forms %}
+                <tr class="line-item-row">
+                    <td style="padding: 8px;">{{ form.description }}{{ form.id }}</td>
+                    <td style="padding: 8px;">{{ form.quantity }}</td>
+                    <td style="padding: 8px;">{{ form.unit_price }}</td>
+                    <td style="padding: 8px;">{{ form.line_total }}</td>
+                    <td style="padding: 8px;">{{ form.rooms }}</td>
+                    <td style="padding: 8px;">{{ form.appliances }}</td>
+                    <td style="padding: 8px; text-align: center;">{{ form.DELETE }}</td>
+                </tr>
+                {% if form.errors %}
+                <tr>
+                    <td colspan="7" style="color: red; padding: 8px;">
+                        {{ form.errors }}
+                    </td>
+                </tr>
+                {% endif %}
+                {% endfor %}
+            </tbody>
+        </table>
+        <button type="button" id="add-line-item" class="btn btn-secondary" style="margin-bottom: 20px;">Add Line Item</button>
+    </div>
+    
     <div class="form-group">
         <label for="id_tax_amount">Tax Amount</label>
         {{ form.tax_amount }}
+        <small style="display: block; color: #666; margin-top: 5px;">Subtotal will be calculated from line items. Enter tax amount here.</small>
     </div>
     <div class="form-group">
         <label for="id_total_amount">Total Amount</label>
         {{ form.total_amount }}
+        <small style="display: block; color: #666; margin-top: 5px;">Will be calculated automatically (Subtotal + Tax)</small>
     </div>
     <div class="form-group">
         <label for="id_category">Category *</label>
@@ -72,6 +117,69 @@
         <a href="{% if object %}{% url 'invoice_detail' object.pk %}{% else %}{% url 'invoice_list' %}{% endif %}" class="btn btn-secondary">Cancel</a>
     </div>
 </form>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Auto-calculate line totals
+    function calculateLineTotal(row) {
+        const quantity = parseFloat(row.querySelector('input[name*="quantity"]')?.value || 0);
+        const unitPrice = parseFloat(row.querySelector('input[name*="unit_price"]')?.value || 0);
+        const lineTotalInput = row.querySelector('input[name*="line_total"]');
+        if (lineTotalInput) {
+            lineTotalInput.value = (quantity * unitPrice).toFixed(2);
+        }
+    }
+    
+    // Add event listeners to quantity and unit_price inputs
+    document.querySelectorAll('.line-item-row').forEach(row => {
+        const quantityInput = row.querySelector('input[name*="quantity"]');
+        const unitPriceInput = row.querySelector('input[name*="unit_price"]');
+        
+        if (quantityInput) {
+            quantityInput.addEventListener('input', () => calculateLineTotal(row));
+        }
+        if (unitPriceInput) {
+            unitPriceInput.addEventListener('input', () => calculateLineTotal(row));
+        }
+    });
+    
+    // Add new line item
+    let formCount = {{ line_items.forms|length }};
+    document.getElementById('add-line-item').addEventListener('click', function() {
+        const formset = document.getElementById('line-items-table').querySelector('tbody');
+        const totalFormsInput = document.querySelector('input[name="line_items-TOTAL_FORMS"]');
+        const newRow = formset.querySelector('.line-item-row').cloneNode(true);
+        
+        // Update form indices
+        newRow.querySelectorAll('input, select').forEach(input => {
+            if (input.name) {
+                input.name = input.name.replace(/-0-/, `-${formCount}-`);
+                input.id = input.id.replace(/-0-/, `-${formCount}-`);
+                input.value = '';
+                if (input.type === 'checkbox') {
+                    input.checked = false;
+                }
+            }
+        });
+        
+        // Clear values
+        newRow.querySelector('input[name*="quantity"]').value = '1';
+        newRow.querySelector('input[name*="unit_price"]').value = '';
+        newRow.querySelector('input[name*="line_total"]').value = '';
+        newRow.querySelector('input[name*="description"]').value = '';
+        
+        // Add event listeners
+        const quantityInput = newRow.querySelector('input[name*="quantity"]');
+        const unitPriceInput = newRow.querySelector('input[name*="unit_price"]');
+        quantityInput.addEventListener('input', () => calculateLineTotal(newRow));
+        unitPriceInput.addEventListener('input', () => calculateLineTotal(newRow));
+        
+        formset.appendChild(newRow);
+        formCount++;
+        totalFormsInput.value = formCount;
+    });
+});
+</script>
 {% endblock %}
 
 

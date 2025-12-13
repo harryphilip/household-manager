@@ -6,7 +6,7 @@ from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 from datetime import date, timedelta
-from household.models import House, Room, Appliance, Vendor, Invoice, MaintenanceTask
+from household.models import House, Room, Appliance, Vendor, Invoice, InvoiceLineItem, MaintenanceTask
 
 
 class HouseModelTest(TestCase):
@@ -230,6 +230,134 @@ class InvoiceModelTest(TestCase):
         )
         self.assertIsNone(invoice.vendor)
         self.assertEqual(str(invoice), "Invoice #INV-003 - Unknown Vendor")
+    
+    def test_invoice_calculate_from_line_items(self):
+        """Test invoice amount calculation from line items."""
+        invoice = Invoice.objects.create(
+            house=self.house,
+            invoice_number="INV-004",
+            vendor=self.vendor,
+            invoice_date=date.today(),
+            amount=0,  # Will be calculated
+            tax_amount=10.00
+        )
+        # Invoice must be saved before creating line items
+        
+        # Create line items
+        line_item1 = InvoiceLineItem.objects.create(
+            invoice=invoice,
+            description="Item 1",
+            quantity=2,
+            unit_price=50.00,
+            line_total=100.00
+        )
+        line_item2 = InvoiceLineItem.objects.create(
+            invoice=invoice,
+            description="Item 2",
+            quantity=1,
+            unit_price=75.00,
+            line_total=75.00
+        )
+        
+        # Refresh invoice from database
+        invoice.refresh_from_db()
+        
+        # Calculate amounts
+        calculated_amount = invoice.calculate_amount_from_line_items()
+        self.assertEqual(float(calculated_amount), 175.00)
+        
+        calculated_total = invoice.calculate_total()
+        self.assertEqual(float(calculated_total), 185.00)  # 175 + 10 tax
+        
+        # Save should update amounts
+        invoice.save()
+        invoice.refresh_from_db()
+        self.assertEqual(float(invoice.amount), 175.00)
+        self.assertEqual(float(invoice.total_amount), 185.00)
+
+
+class InvoiceLineItemModelTest(TestCase):
+    """Test cases for InvoiceLineItem model."""
+    
+    def setUp(self):
+        """Set up test data."""
+        self.house = House.objects.create(address="123 Test Street")
+        self.vendor = Vendor.objects.create(
+            house=self.house,
+            name="ABC Plumbing",
+            service_type="plumbing"
+        )
+        self.invoice = Invoice.objects.create(
+            house=self.house,
+            invoice_number="INV-001",
+            vendor=self.vendor,
+            invoice_date=date.today(),
+            amount=100.00,
+            tax_amount=10.00,
+            total_amount=110.00
+        )
+        self.room = Room.objects.create(
+            house=self.house,
+            name="Kitchen",
+            room_type="kitchen"
+        )
+        self.appliance = Appliance.objects.create(
+            house=self.house,
+            name="Refrigerator",
+            appliance_type="refrigerator"
+        )
+    
+    def test_line_item_creation(self):
+        """Test line item can be created."""
+        line_item = InvoiceLineItem.objects.create(
+            invoice=self.invoice,
+            description="Service Call",
+            quantity=1,
+            unit_price=100.00,
+            line_total=100.00
+        )
+        self.assertEqual(line_item.description, "Service Call")
+        self.assertEqual(float(line_item.line_total), 100.00)
+    
+    def test_line_item_auto_calculate_total(self):
+        """Test line total is calculated automatically."""
+        line_item = InvoiceLineItem.objects.create(
+            invoice=self.invoice,
+            description="Item",
+            quantity=3,
+            unit_price=25.00
+            # line_total not provided
+        )
+        self.assertEqual(float(line_item.line_total), 75.00)
+    
+    def test_line_item_with_rooms_and_appliances(self):
+        """Test line item with rooms and appliances."""
+        line_item = InvoiceLineItem.objects.create(
+            invoice=self.invoice,
+            description="Kitchen Repair",
+            quantity=1,
+            unit_price=150.00,
+            line_total=150.00
+        )
+        line_item.rooms.add(self.room)
+        line_item.appliances.add(self.appliance)
+        
+        self.assertEqual(line_item.rooms.count(), 1)
+        self.assertIn(self.room, line_item.rooms.all())
+        self.assertEqual(line_item.appliances.count(), 1)
+        self.assertIn(self.appliance, line_item.appliances.all())
+    
+    def test_line_item_str(self):
+        """Test line item string representation."""
+        line_item = InvoiceLineItem.objects.create(
+            invoice=self.invoice,
+            description="Test Item",
+            quantity=1,
+            unit_price=50.00,
+            line_total=50.00
+        )
+        expected = f"{self.invoice.invoice_number} - Test Item"
+        self.assertEqual(str(line_item), expected)
 
 
 class MaintenanceTaskModelTest(TestCase):

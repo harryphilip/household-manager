@@ -8,7 +8,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.exceptions import PermissionDenied
 from PIL import Image
 from io import BytesIO
-from household.models import House, Room, Appliance, Vendor, Invoice, MaintenanceTask
+from household.models import House, Room, Appliance, Vendor, Invoice, InvoiceLineItem, MaintenanceTask
 from datetime import date
 
 
@@ -287,6 +287,8 @@ class InvoiceViewTest(TestCase):
         self.house = House.objects.create(address="123 Test Street")
         self.house.owners.add(self.user)
         self.vendor = Vendor.objects.create(house=self.house, name="ABC Plumbing", service_type="plumbing")
+        self.room = Room.objects.create(house=self.house, name="Kitchen", room_type="kitchen")
+        self.appliance = Appliance.objects.create(house=self.house, name="Refrigerator", appliance_type="refrigerator")
         self.invoice = Invoice.objects.create(
             house=self.house,
             invoice_number="INV-001",
@@ -309,6 +311,189 @@ class InvoiceViewTest(TestCase):
         response = self.client.get(reverse('invoice_detail', args=[self.invoice.pk]))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, self.invoice.invoice_number)
+    
+    def test_invoice_detail_view_with_line_items(self):
+        """Test invoice detail view displays line items."""
+        # Create line items
+        line_item1 = InvoiceLineItem.objects.create(
+            invoice=self.invoice,
+            description="Service Call",
+            quantity=1,
+            unit_price=100.00,
+            line_total=100.00
+        )
+        line_item1.rooms.add(self.room)
+        line_item1.appliances.add(self.appliance)
+        
+        line_item2 = InvoiceLineItem.objects.create(
+            invoice=self.invoice,
+            description="Parts",
+            quantity=2,
+            unit_price=50.00,
+            line_total=100.00
+        )
+        
+        response = self.client.get(reverse('invoice_detail', args=[self.invoice.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Service Call")
+        self.assertContains(response, "Parts")
+        self.assertContains(response, self.room.name)
+        self.assertContains(response, self.appliance.name)
+    
+    def test_invoice_create_view_with_line_items(self):
+        """Test creating invoice with line items."""
+        from django.forms import formset_factory
+        
+        post_data = {
+            'house': self.house.pk,
+            'invoice_number': 'INV-002',
+            'vendor': self.vendor.pk,
+            'invoice_date': date.today().isoformat(),
+            'amount': '0',  # Will be calculated from line items
+            'tax_amount': '10.00',
+            'total_amount': '0',  # Will be calculated
+            'category': 'maintenance',
+            'line_items-TOTAL_FORMS': '2',
+            'line_items-INITIAL_FORMS': '0',
+            'line_items-MIN_NUM_FORMS': '0',
+            'line_items-MAX_NUM_FORMS': '1000',
+            'line_items-0-description': 'Item 1',
+            'line_items-0-quantity': '2',
+            'line_items-0-unit_price': '50.00',
+            'line_items-0-line_total': '100.00',
+            'line_items-0-rooms': [self.room.pk],
+            'line_items-0-appliances': [self.appliance.pk],
+            'line_items-1-description': 'Item 2',
+            'line_items-1-quantity': '1',
+            'line_items-1-unit_price': '75.00',
+            'line_items-1-line_total': '75.00',
+            'line_items-1-rooms': [],
+            'line_items-1-appliances': [],
+        }
+        
+        response = self.client.post(reverse('invoice_create'), post_data)
+        self.assertEqual(response.status_code, 302)  # Redirect after creation
+        
+        # Verify invoice was created
+        invoice = Invoice.objects.get(invoice_number='INV-002')
+        self.assertEqual(invoice.house, self.house)
+        
+        # Verify line items were created
+        line_items = invoice.line_items.all()
+        self.assertEqual(line_items.count(), 2)
+        
+        # Verify first line item has room and appliance
+        line_item1 = line_items.first()
+        self.assertEqual(line_item1.description, 'Item 1')
+        self.assertIn(self.room, line_item1.rooms.all())
+        self.assertIn(self.appliance, line_item1.appliances.all())
+        
+        # Verify totals were calculated
+        invoice.refresh_from_db()
+        self.assertEqual(float(invoice.amount), 175.00)  # 100 + 75
+        self.assertEqual(float(invoice.total_amount), 185.00)  # 175 + 10 tax
+    
+    def test_invoice_update_view_with_line_items(self):
+        """Test updating invoice with line items."""
+        # Create a line item
+        line_item = InvoiceLineItem.objects.create(
+            invoice=self.invoice,
+            description="Original Item",
+            quantity=1,
+            unit_price=100.00,
+            line_total=100.00
+        )
+        
+        # Update invoice with new line items
+        post_data = {
+            'house': self.house.pk,
+            'invoice_number': self.invoice.invoice_number,
+            'vendor': self.vendor.pk,
+            'invoice_date': self.invoice.invoice_date.isoformat(),
+            'amount': '0',
+            'tax_amount': '15.00',
+            'total_amount': '0',
+            'category': 'maintenance',
+            'line_items-TOTAL_FORMS': '2',
+            'line_items-INITIAL_FORMS': '1',
+            'line_items-MIN_NUM_FORMS': '0',
+            'line_items-MAX_NUM_FORMS': '1000',
+            'line_items-0-id': str(line_item.pk),
+            'line_items-0-description': 'Updated Item',
+            'line_items-0-quantity': '3',
+            'line_items-0-unit_price': '50.00',
+            'line_items-0-line_total': '150.00',
+            'line_items-0-rooms': [self.room.pk],
+            'line_items-0-appliances': [],
+            'line_items-1-description': 'New Item',
+            'line_items-1-quantity': '1',
+            'line_items-1-unit_price': '25.00',
+            'line_items-1-line_total': '25.00',
+            'line_items-1-rooms': [],
+            'line_items-1-appliances': [self.appliance.pk],
+        }
+        
+        response = self.client.post(reverse('invoice_update', args=[self.invoice.pk]), post_data)
+        self.assertEqual(response.status_code, 302)
+        
+        # Verify line items were updated
+        self.invoice.refresh_from_db()
+        line_items = self.invoice.line_items.all()
+        self.assertEqual(line_items.count(), 2)
+        
+        # Verify first item was updated
+        updated_item = line_items.get(pk=line_item.pk)
+        self.assertEqual(updated_item.description, 'Updated Item')
+        self.assertEqual(float(updated_item.line_total), 150.00)
+        self.assertIn(self.room, updated_item.rooms.all())
+        
+        # Verify new item was created
+        new_item = line_items.exclude(pk=line_item.pk).first()
+        self.assertEqual(new_item.description, 'New Item')
+        self.assertIn(self.appliance, new_item.appliances.all())
+        
+        # Verify totals
+        self.assertEqual(float(self.invoice.amount), 175.00)
+        self.assertEqual(float(self.invoice.total_amount), 190.00)  # 175 + 15 tax
+    
+    def test_invoice_create_view_line_items_filtered_by_house(self):
+        """Test that line item rooms/appliances are filtered by invoice house."""
+        # Create another house with room/appliance
+        other_house = House.objects.create(address="456 Other Street")
+        other_house.owners.add(self.user)
+        other_room = Room.objects.create(house=other_house, name="Other Room")
+        other_appliance = Appliance.objects.create(house=other_house, name="Other Appliance")
+        
+        # Try to create invoice with line items from different house
+        post_data = {
+            'house': self.house.pk,
+            'invoice_number': 'INV-003',
+            'vendor': self.vendor.pk,
+            'invoice_date': date.today().isoformat(),
+            'amount': '100.00',
+            'tax_amount': '10.00',
+            'total_amount': '110.00',
+            'category': 'maintenance',
+            'line_items-TOTAL_FORMS': '1',
+            'line_items-INITIAL_FORMS': '0',
+            'line_items-MIN_NUM_FORMS': '0',
+            'line_items-MAX_NUM_FORMS': '1000',
+            'line_items-0-description': 'Item',
+            'line_items-0-quantity': '1',
+            'line_items-0-unit_price': '100.00',
+            'line_items-0-line_total': '100.00',
+            'line_items-0-rooms': [self.room.pk],  # From same house - should work
+            'line_items-0-appliances': [self.appliance.pk],  # From same house - should work
+        }
+        
+        response = self.client.post(reverse('invoice_create'), post_data)
+        # Should succeed because rooms/appliances are from the same house
+        self.assertEqual(response.status_code, 302)
+        
+        invoice = Invoice.objects.get(invoice_number='INV-003')
+        line_item = invoice.line_items.first()
+        self.assertIn(self.room, line_item.rooms.all())
+        self.assertIn(self.appliance, line_item.appliances.all())
 
 
 class ExtractLabelInfoViewTest(TestCase):

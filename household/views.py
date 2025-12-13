@@ -9,7 +9,8 @@ from django.views.decorators.http import require_http_methods
 from django.utils import timezone
 from datetime import date
 import json
-from .models import House, Room, Appliance, Vendor, Invoice, MaintenanceTask
+from .models import House, Room, Appliance, Vendor, Invoice, InvoiceLineItem, MaintenanceTask
+from .forms import InvoiceLineItemFormSet
 from .permissions import (
     get_user_houses, get_user_editable_houses, require_house_access,
     filter_by_user_house
@@ -384,6 +385,11 @@ class InvoiceDetailView(LoginRequiredMixin, DetailView):
         invoice = super().get_object(queryset)
         require_house_access(self.request.user, invoice.house)
         return invoice
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['line_items'] = self.object.line_items.all()
+        return context
 
 
 class InvoiceCreateView(LoginRequiredMixin, CreateView):
@@ -402,6 +408,41 @@ class InvoiceCreateView(LoginRequiredMixin, CreateView):
         form.fields['related_appliance'].queryset = filter_by_user_house(Appliance.objects.all(), self.request.user)
         return form
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        # Get house from form data or existing object
+        house = None
+        if self.request.POST and 'house' in self.request.POST:
+            try:
+                house_id = int(self.request.POST['house'])
+                from .models import House
+                house = House.objects.get(pk=house_id)
+            except (ValueError, House.DoesNotExist):
+                pass
+        elif hasattr(self, 'object') and self.object:
+            house = self.object.house
+        
+        # Create a temporary invoice instance for the formset if needed
+        invoice_instance = None
+        if hasattr(self, 'object') and self.object:
+            invoice_instance = self.object
+        elif house:
+            # Create a temporary unsaved invoice for the formset
+            invoice_instance = Invoice(house=house)
+        
+        if self.request.POST:
+            context['line_items'] = InvoiceLineItemFormSet(self.request.POST, instance=invoice_instance)
+        else:
+            context['line_items'] = InvoiceLineItemFormSet(instance=invoice_instance)
+        
+        # Update formset forms to have house context
+        if house and context.get('line_items'):
+            for form in context['line_items'].forms:
+                form.fields['rooms'].queryset = house.rooms.all()
+                form.fields['appliances'].queryset = house.appliances.all()
+        
+        return context
+
     def form_valid(self, form):
         house = form.cleaned_data['house']
         require_house_access(self.request.user, house, require_edit=True)
@@ -412,8 +453,28 @@ class InvoiceCreateView(LoginRequiredMixin, CreateView):
         if form.cleaned_data.get('related_appliance') and form.cleaned_data['related_appliance'].house != house:
             form.add_error('related_appliance', 'Appliance must belong to the selected house.')
             return self.form_invalid(form)
-        messages.success(self.request, 'Invoice created successfully!')
-        return super().form_valid(form)
+        
+        # Save invoice first
+        response = super().form_valid(form)
+        
+        # Handle line items
+        line_items = InvoiceLineItemFormSet(self.request.POST, instance=self.object)
+        # Update formset forms to have house context for validation
+        for form in line_items.forms:
+            if house:
+                form.fields['rooms'].queryset = house.rooms.all()
+                form.fields['appliances'].queryset = house.appliances.all()
+        
+        if line_items.is_valid():
+            line_items.save()
+            # Update invoice totals from line items
+            self.object.save()  # This will recalculate from line items
+            messages.success(self.request, 'Invoice created successfully!')
+        else:
+            messages.error(self.request, 'There were errors in the line items. Please correct them.')
+            return self.form_invalid(form)
+        
+        return response
 
 
 class InvoiceUpdateView(LoginRequiredMixin, UpdateView):
@@ -436,6 +497,14 @@ class InvoiceUpdateView(LoginRequiredMixin, UpdateView):
         form.fields['related_appliance'].queryset = filter_by_user_house(Appliance.objects.all(), self.request.user)
         return form
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        if self.request.POST:
+            context['line_items'] = InvoiceLineItemFormSet(self.request.POST, instance=self.object)
+        else:
+            context['line_items'] = InvoiceLineItemFormSet(instance=self.object)
+        return context
+
     def form_valid(self, form):
         house = form.cleaned_data['house']
         require_house_access(self.request.user, house, require_edit=True)
@@ -445,8 +514,28 @@ class InvoiceUpdateView(LoginRequiredMixin, UpdateView):
         if form.cleaned_data.get('related_appliance') and form.cleaned_data['related_appliance'].house != house:
             form.add_error('related_appliance', 'Appliance must belong to the selected house.')
             return self.form_invalid(form)
-        messages.success(self.request, 'Invoice updated successfully!')
-        return super().form_valid(form)
+        
+        # Save invoice first
+        response = super().form_valid(form)
+        
+        # Handle line items
+        line_items = InvoiceLineItemFormSet(self.request.POST, instance=self.object)
+        # Update formset forms to have house context for validation
+        for form in line_items.forms:
+            if house:
+                form.fields['rooms'].queryset = house.rooms.all()
+                form.fields['appliances'].queryset = house.appliances.all()
+        
+        if line_items.is_valid():
+            line_items.save()
+            # Update invoice totals from line items
+            self.object.save()  # This will recalculate from line items
+            messages.success(self.request, 'Invoice updated successfully!')
+        else:
+            messages.error(self.request, 'There were errors in the line items. Please correct them.')
+            return self.form_invalid(form)
+        
+        return response
 
 
 class InvoiceDeleteView(LoginRequiredMixin, DeleteView):
