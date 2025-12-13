@@ -1,0 +1,57 @@
+{% extends 'household/base.html' %}
+
+{% block title %}{{ room.name }} - Household Manager{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+    <h1>{{ room.name }}</h1>
+    <div class="actions">
+        <a href="{% url 'room_update' room.pk %}" class="btn">Edit</a>
+        <a href="{% url 'room_delete' room.pk %}" class="btn btn-danger">Delete</a>
+        <a href="{% url 'room_list' %}" class="btn btn-secondary">Back to List</a>
+    </div>
+</div>
+
+<div class="card">
+    <div class="detail-section">
+        <h3>Room Information</h3>
+        <p><strong>Type:</strong> {{ room.get_room_type_display }}</p>
+        <p><strong>Floor:</strong> {{ room.floor }}</p>
+        {% if room.square_feet %}
+        <p><strong>Square Feet:</strong> {{ room.square_feet }}</p>
+        {% endif %}
+        {% if room.description %}
+        <p><strong>Description:</strong> {{ room.description }}</p>
+        {% endif %}
+    </div>
+</div>
+
+{% if room.appliances.all %}
+<div class="card">
+    <h2>Appliances in this Room</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Brand</th>
+                <th>Type</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for appliance in room.appliances.all %}
+            <tr>
+                <td><a href="{% url 'appliance_detail' appliance.pk %}" style="color: #667eea; text-decoration: none;">{{ appliance.name }}</a></td>
+                <td>{{ appliance.brand|default:"—" }}</td>
+                <td>{{ appliance.get_appliance_type_display }}</td>
+                <td><a href="{% url 'appliance_detail' appliance.pk %}" class="btn" style="padding: 5px 10px; font-size: 12px;">View</a></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endblock %}
+
+
+

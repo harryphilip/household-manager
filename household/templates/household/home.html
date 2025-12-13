@@ -1,0 +1,96 @@
+{% extends 'household/base.html' %}
+
+{% block title %}Home - Household Manager{% endblock %}
+
+{% block content %}
+<div class="stats-grid">
+    <div class="stat-card">
+        <h3>{{ room_count }}</h3>
+        <p>Rooms</p>
+    </div>
+    <div class="stat-card">
+        <h3>{{ appliance_count }}</h3>
+        <p>Appliances</p>
+    </div>
+    <div class="stat-card">
+        <h3>{{ vendor_count }}</h3>
+        <p>Vendors</p>
+    </div>
+    <div class="stat-card">
+        <h3>{{ invoice_count }}</h3>
+        <p>Invoices</p>
+    </div>
+    <div class="stat-card">
+        <h3>${{ total_invoice_amount|floatformat:2 }}</h3>
+        <p>Total Invoice Amount</p>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">
+    <div class="card">
+        <h2>Recent Rooms</h2>
+        {% if recent_rooms %}
+        <ul style="list-style: none;">
+            {% for room in recent_rooms %}
+            <li style="padding: 8px 0; border-bottom: 1px solid #eee;">
+                <a href="{% url 'room_detail' room.pk %}" style="color: #667eea; text-decoration: none;">
+                    {{ room.name }} ({{ room.get_room_type_display }})
+                </a>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="empty-state">No rooms yet. <a href="{% url 'room_create' %}">Create one</a></p>
+        {% endif %}
+        <div class="actions">
+            <a href="{% url 'room_list' %}" class="btn">View All Rooms</a>
+            <a href="{% url 'room_create' %}" class="btn">Add Room</a>
+        </div>
+    </div>
+    
+    <div class="card">
+        <h2>Recent Appliances</h2>
+        {% if recent_appliances %}
+        <ul style="list-style: none;">
+            {% for appliance in recent_appliances %}
+            <li style="padding: 8px 0; border-bottom: 1px solid #eee;">
+                <a href="{% url 'appliance_detail' appliance.pk %}" style="color: #667eea; text-decoration: none;">
+                    {{ appliance.name }} {% if appliance.room %}({{ appliance.room.name }}){% endif %}
+                </a>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="empty-state">No appliances yet. <a href="{% url 'appliance_create' %}">Create one</a></p>
+        {% endif %}
+        <div class="actions">
+            <a href="{% url 'appliance_list' %}" class="btn">View All Appliances</a>
+            <a href="{% url 'appliance_create' %}" class="btn">Add Appliance</a>
+        </div>
+    </div>
+    
+    <div class="card">
+        <h2>Recent Invoices</h2>
+        {% if recent_invoices %}
+        <ul style="list-style: none;">
+            {% for invoice in recent_invoices %}
+            <li style="padding: 8px 0; border-bottom: 1px solid #eee;">
+                <a href="{% url 'invoice_detail' invoice.pk %}" style="color: #667eea; text-decoration: none;">
+                    #{{ invoice.invoice_number }} - ${{ invoice.total_amount|floatformat:2 }}
+                </a>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="empty-state">No invoices yet. <a href="{% url 'invoice_create' %}">Create one</a></p>
+        {% endif %}
+        <div class="actions">
+            <a href="{% url 'invoice_list' %}" class="btn">View All Invoices</a>
+            <a href="{% url 'invoice_create' %}" class="btn">Add Invoice</a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+
+

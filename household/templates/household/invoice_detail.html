@@ -1,0 +1,51 @@
+{% extends 'household/base.html' %}
+
+{% block title %}Invoice #{{ invoice.invoice_number }} - Household Manager{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+    <h1>Invoice #{{ invoice.invoice_number }}</h1>
+    <div class="actions">
+        <a href="{% url 'invoice_update' invoice.pk %}" class="btn">Edit</a>
+        <a href="{% url 'invoice_delete' invoice.pk %}" class="btn btn-danger">Delete</a>
+        <a href="{% url 'invoice_list' %}" class="btn btn-secondary">Back to List</a>
+    </div>
+</div>
+
+<div class="card">
+    <div class="detail-section">
+        <h3>Invoice Information</h3>
+        <p><strong>Vendor:</strong> {% if invoice.vendor %}<a href="{% url 'vendor_detail' invoice.vendor.pk %}" style="color: #667eea;">{{ invoice.vendor.name }}</a>{% else %}—{% endif %}</p>
+        <p><strong>Invoice Date:</strong> {{ invoice.invoice_date }}</p>
+        {% if invoice.due_date %}
+        <p><strong>Due Date:</strong> {{ invoice.due_date }}</p>
+        {% endif %}
+        <p><strong>Amount:</strong> ${{ invoice.amount|floatformat:2 }}</p>
+        <p><strong>Tax Amount:</strong> ${{ invoice.tax_amount|floatformat:2 }}</p>
+        <p><strong>Total Amount:</strong> <strong style="font-size: 1.2em; color: #667eea;">${{ invoice.total_amount|floatformat:2 }}</strong></p>
+        <p><strong>Category:</strong> {{ invoice.get_category_display }}</p>
+        <p><strong>Paid:</strong> {% if invoice.paid %}✓ Yes{% else %}✗ No{% endif %}</p>
+        {% if invoice.paid and invoice.paid_date %}
+        <p><strong>Paid Date:</strong> {{ invoice.paid_date }}</p>
+        {% endif %}
+        {% if invoice.payment_method %}
+        <p><strong>Payment Method:</strong> {{ invoice.get_payment_method_display }}</p>
+        {% endif %}
+        {% if invoice.related_appliance %}
+        <p><strong>Related Appliance:</strong> <a href="{% url 'appliance_detail' invoice.related_appliance.pk %}" style="color: #667eea;">{{ invoice.related_appliance.name }}</a></p>
+        {% endif %}
+        {% if invoice.description %}
+        <p><strong>Description:</strong> {{ invoice.description }}</p>
+        {% endif %}
+        {% if invoice.notes %}
+        <p><strong>Notes:</strong> {{ invoice.notes }}</p>
+        {% endif %}
+        {% if invoice.invoice_file %}
+        <p><strong>Invoice File:</strong> <a href="{{ invoice.invoice_file.url }}" target="_blank" style="color: #667eea;">Download</a></p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+
+

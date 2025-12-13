@@ -1,0 +1,47 @@
+{% extends 'household/base.html' %}
+
+{% block title %}Rooms - Household Manager{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+    <h1>Rooms</h1>
+    <a href="{% url 'room_create' %}" class="btn">Add New Room</a>
+</div>
+
+{% if rooms %}
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Floor</th>
+            <th>Square Feet</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for room in rooms %}
+        <tr>
+            <td><a href="{% url 'room_detail' room.pk %}" style="color: #667eea; text-decoration: none;">{{ room.name }}</a></td>
+            <td>{{ room.get_room_type_display }}</td>
+            <td>{{ room.floor }}</td>
+            <td>{% if room.square_feet %}{{ room.square_feet }}{% else %}—{% endif %}</td>
+            <td>
+                <a href="{% url 'room_detail' room.pk %}" class="btn" style="padding: 5px 10px; font-size: 12px;">View</a>
+                <a href="{% url 'room_update' room.pk %}" class="btn" style="padding: 5px 10px; font-size: 12px;">Edit</a>
+                <a href="{% url 'room_delete' room.pk %}" class="btn btn-danger" style="padding: 5px 10px; font-size: 12px;">Delete</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="empty-state">
+    <p>No rooms found. Create your first room to get started!</p>
+    <a href="{% url 'room_create' %}" class="btn">Add Room</a>
+</div>
+{% endif %}
+{% endblock %}
+
+
+

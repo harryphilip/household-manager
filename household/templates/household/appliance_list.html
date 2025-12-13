@@ -1,0 +1,49 @@
+{% extends 'household/base.html' %}
+
+{% block title %}Appliances - Household Manager{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+    <h1>Appliances</h1>
+    <a href="{% url 'appliance_create' %}" class="btn">Add New Appliance</a>
+</div>
+
+{% if appliances %}
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Brand</th>
+            <th>Type</th>
+            <th>Room</th>
+            <th>Purchase Date</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for appliance in appliances %}
+        <tr>
+            <td><a href="{% url 'appliance_detail' appliance.pk %}" style="color: #667eea; text-decoration: none;">{{ appliance.name }}</a></td>
+            <td>{{ appliance.brand|default:"—" }}</td>
+            <td>{{ appliance.get_appliance_type_display }}</td>
+            <td>{% if appliance.room %}{{ appliance.room.name }}{% else %}—{% endif %}</td>
+            <td>{% if appliance.purchase_date %}{{ appliance.purchase_date }}{% else %}—{% endif %}</td>
+            <td>
+                <a href="{% url 'appliance_detail' appliance.pk %}" class="btn" style="padding: 5px 10px; font-size: 12px;">View</a>
+                <a href="{% url 'appliance_update' appliance.pk %}" class="btn" style="padding: 5px 10px; font-size: 12px;">Edit</a>
+                <a href="{% url 'appliance_delete' appliance.pk %}" class="btn btn-danger" style="padding: 5px 10px; font-size: 12px;">Delete</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="empty-state">
+    <p>No appliances found. Create your first appliance to get started!</p>
+    <a href="{% url 'appliance_create' %}" class="btn">Add Appliance</a>
+</div>
+{% endif %}
+{% endblock %}
+
+
+

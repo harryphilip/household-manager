@@ -1,0 +1,49 @@
+{% extends 'household/base.html' %}
+
+{% block title %}Vendors - Household Manager{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+    <h1>Vendors</h1>
+    <a href="{% url 'vendor_create' %}" class="btn">Add New Vendor</a>
+</div>
+
+{% if vendors %}
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Contact Person</th>
+            <th>Email</th>
+            <th>Phone</th>
+            <th>Service Type</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for vendor in vendors %}
+        <tr>
+            <td><a href="{% url 'vendor_detail' vendor.pk %}" style="color: #667eea; text-decoration: none;">{{ vendor.name }}</a></td>
+            <td>{{ vendor.contact_person|default:"—" }}</td>
+            <td>{{ vendor.email|default:"—" }}</td>
+            <td>{{ vendor.phone|default:"—" }}</td>
+            <td>{{ vendor.get_service_type_display }}</td>
+            <td>
+                <a href="{% url 'vendor_detail' vendor.pk %}" class="btn" style="padding: 5px 10px; font-size: 12px;">View</a>
+                <a href="{% url 'vendor_update' vendor.pk %}" class="btn" style="padding: 5px 10px; font-size: 12px;">Edit</a>
+                <a href="{% url 'vendor_delete' vendor.pk %}" class="btn btn-danger" style="padding: 5px 10px; font-size: 12px;">Delete</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="empty-state">
+    <p>No vendors found. Create your first vendor to get started!</p>
+    <a href="{% url 'vendor_create' %}" class="btn">Add Vendor</a>
+</div>
+{% endif %}
+{% endblock %}
+
+
+

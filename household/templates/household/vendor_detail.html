@@ -1,0 +1,70 @@
+{% extends 'household/base.html' %}
+
+{% block title %}{{ vendor.name }} - Household Manager{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+    <h1>{{ vendor.name }}</h1>
+    <div class="actions">
+        <a href="{% url 'vendor_update' vendor.pk %}" class="btn">Edit</a>
+        <a href="{% url 'vendor_delete' vendor.pk %}" class="btn btn-danger">Delete</a>
+        <a href="{% url 'vendor_list' %}" class="btn btn-secondary">Back to List</a>
+    </div>
+</div>
+
+<div class="card">
+    <div class="detail-section">
+        <h3>Vendor Information</h3>
+        <p><strong>Service Type:</strong> {{ vendor.get_service_type_display }}</p>
+        {% if vendor.contact_person %}
+        <p><strong>Contact Person:</strong> {{ vendor.contact_person }}</p>
+        {% endif %}
+        {% if vendor.email %}
+        <p><strong>Email:</strong> <a href="mailto:{{ vendor.email }}" style="color: #667eea;">{{ vendor.email }}</a></p>
+        {% endif %}
+        {% if vendor.phone %}
+        <p><strong>Phone:</strong> <a href="tel:{{ vendor.phone }}" style="color: #667eea;">{{ vendor.phone }}</a></p>
+        {% endif %}
+        {% if vendor.address %}
+        <p><strong>Address:</strong> {{ vendor.address }}</p>
+        {% endif %}
+        {% if vendor.website %}
+        <p><strong>Website:</strong> <a href="{{ vendor.website }}" target="_blank" style="color: #667eea;">{{ vendor.website }}</a></p>
+        {% endif %}
+        {% if vendor.notes %}
+        <p><strong>Notes:</strong> {{ vendor.notes }}</p>
+        {% endif %}
+    </div>
+</div>
+
+{% if vendor.invoices.all %}
+<div class="card">
+    <h2>Invoices from this Vendor</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Invoice Number</th>
+                <th>Date</th>
+                <th>Amount</th>
+                <th>Paid</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for invoice in vendor.invoices.all %}
+            <tr>
+                <td><a href="{% url 'invoice_detail' invoice.pk %}" style="color: #667eea; text-decoration: none;">#{{ invoice.invoice_number }}</a></td>
+                <td>{{ invoice.invoice_date }}</td>
+                <td>${{ invoice.total_amount|floatformat:2 }}</td>
+                <td>{% if invoice.paid %}✓ Yes{% else %}✗ No{% endif %}</td>
+                <td><a href="{% url 'invoice_detail' invoice.pk %}" class="btn" style="padding: 5px 10px; font-size: 12px;">View</a></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endblock %}
+
+
+

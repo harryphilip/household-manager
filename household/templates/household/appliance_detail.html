@@ -1,0 +1,68 @@
+{% extends 'household/base.html' %}
+
+{% block title %}{{ appliance.name }} - Household Manager{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+    <h1>{{ appliance.name }}</h1>
+    <div class="actions">
+        <a href="{% url 'appliance_update' appliance.pk %}" class="btn">Edit</a>
+        <a href="{% url 'appliance_delete' appliance.pk %}" class="btn btn-danger">Delete</a>
+        <a href="{% url 'appliance_list' %}" class="btn btn-secondary">Back to List</a>
+    </div>
+</div>
+
+<div class="card">
+    <div class="detail-section">
+        <h3>Appliance Information</h3>
+        <p><strong>Brand:</strong> {{ appliance.brand|default:"—" }}</p>
+        <p><strong>Model Number:</strong> {{ appliance.model_number|default:"—" }}</p>
+        <p><strong>Serial Number:</strong> {{ appliance.serial_number|default:"—" }}</p>
+        <p><strong>Type:</strong> {{ appliance.get_appliance_type_display }}</p>
+        <p><strong>Room:</strong> {% if appliance.room %}<a href="{% url 'room_detail' appliance.room.pk %}" style="color: #667eea;">{{ appliance.room.name }}</a>{% else %}—{% endif %}</p>
+        {% if appliance.purchase_date %}
+        <p><strong>Purchase Date:</strong> {{ appliance.purchase_date }}</p>
+        {% endif %}
+        {% if appliance.warranty_expiry %}
+        <p><strong>Warranty Expiry:</strong> {{ appliance.warranty_expiry }}</p>
+        {% endif %}
+        {% if appliance.purchase_price %}
+        <p><strong>Purchase Price:</strong> ${{ appliance.purchase_price|floatformat:2 }}</p>
+        {% endif %}
+        {% if appliance.notes %}
+        <p><strong>Notes:</strong> {{ appliance.notes }}</p>
+        {% endif %}
+    </div>
+</div>
+
+{% if appliance.invoices.all %}
+<div class="card">
+    <h2>Related Invoices</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Invoice Number</th>
+                <th>Vendor</th>
+                <th>Date</th>
+                <th>Amount</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for invoice in appliance.invoices.all %}
+            <tr>
+                <td><a href="{% url 'invoice_detail' invoice.pk %}" style="color: #667eea; text-decoration: none;">#{{ invoice.invoice_number }}</a></td>
+                <td>{% if invoice.vendor %}{{ invoice.vendor.name }}{% else %}—{% endif %}</td>
+                <td>{{ invoice.invoice_date }}</td>
+                <td>${{ invoice.total_amount|floatformat:2 }}</td>
+                <td><a href="{% url 'invoice_detail' invoice.pk %}" class="btn" style="padding: 5px 10px; font-size: 12px;">View</a></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endblock %}
+
+
+

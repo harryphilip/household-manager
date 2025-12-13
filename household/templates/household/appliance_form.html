@@ -1,0 +1,58 @@
+{% extends 'household/base.html' %}
+
+{% block title %}{% if object %}Edit Appliance{% else %}Create Appliance{% endif %} - Household Manager{% endblock %}
+
+{% block content %}
+<h1>{% if object %}Edit Appliance{% else %}Create New Appliance{% endif %}</h1>
+
+<form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    <div class="form-group">
+        <label for="id_name">Name *</label>
+        {{ form.name }}
+    </div>
+    <div class="form-group">
+        <label for="id_brand">Brand</label>
+        {{ form.brand }}
+    </div>
+    <div class="form-group">
+        <label for="id_model_number">Model Number</label>
+        {{ form.model_number }}
+    </div>
+    <div class="form-group">
+        <label for="id_serial_number">Serial Number</label>
+        {{ form.serial_number }}
+    </div>
+    <div class="form-group">
+        <label for="id_appliance_type">Appliance Type *</label>
+        {{ form.appliance_type }}
+    </div>
+    <div class="form-group">
+        <label for="id_room">Room</label>
+        {{ form.room }}
+    </div>
+    <div class="form-group">
+        <label for="id_purchase_date">Purchase Date</label>
+        {{ form.purchase_date }}
+    </div>
+    <div class="form-group">
+        <label for="id_warranty_expiry">Warranty Expiry</label>
+        {{ form.warranty_expiry }}
+    </div>
+    <div class="form-group">
+        <label for="id_purchase_price">Purchase Price</label>
+        {{ form.purchase_price }}
+    </div>
+    <div class="form-group">
+        <label for="id_notes">Notes</label>
+        {{ form.notes }}
+    </div>
+    <div class="form-actions">
+        <button type="submit" class="btn">{% if object %}Update{% else %}Create{% endif %} Appliance</button>
+        <a href="{% if object %}{% url 'appliance_detail' object.pk %}{% else %}{% url 'appliance_list' %}{% endif %}" class="btn btn-secondary">Cancel</a>
+    </div>
+</form>
+{% endblock %}
+
+
+

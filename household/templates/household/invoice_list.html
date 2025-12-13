@@ -1,0 +1,51 @@
+{% extends 'household/base.html' %}
+
+{% block title %}Invoices - Household Manager{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+    <h1>Invoices</h1>
+    <a href="{% url 'invoice_create' %}" class="btn">Add New Invoice</a>
+</div>
+
+{% if invoices %}
+<table>
+    <thead>
+        <tr>
+            <th>Invoice Number</th>
+            <th>Vendor</th>
+            <th>Date</th>
+            <th>Amount</th>
+            <th>Category</th>
+            <th>Paid</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for invoice in invoices %}
+        <tr>
+            <td><a href="{% url 'invoice_detail' invoice.pk %}" style="color: #667eea; text-decoration: none;">#{{ invoice.invoice_number }}</a></td>
+            <td>{% if invoice.vendor %}{{ invoice.vendor.name }}{% else %}—{% endif %}</td>
+            <td>{{ invoice.invoice_date }}</td>
+            <td>${{ invoice.total_amount|floatformat:2 }}</td>
+            <td>{{ invoice.get_category_display }}</td>
+            <td>{% if invoice.paid %}✓ Yes{% else %}✗ No{% endif %}</td>
+            <td>
+                <a href="{% url 'invoice_detail' invoice.pk %}" class="btn" style="padding: 5px 10px; font-size: 12px;">View</a>
+                <a href="{% url 'invoice_update' invoice.pk %}" class="btn" style="padding: 5px 10px; font-size: 12px;">Edit</a>
+                <a href="{% url 'invoice_delete' invoice.pk %}" class="btn btn-danger" style="padding: 5px 10px; font-size: 12px;">Delete</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="empty-state">
+    <p>No invoices found. Create your first invoice to get started!</p>
+    <a href="{% url 'invoice_create' %}" class="btn">Add Invoice</a>
+</div>
+{% endif %}
+{% endblock %}
+
+
+
