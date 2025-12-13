@@ -1,9 +1,59 @@
 from django.db import models
 from django.urls import reverse
+from django.contrib.auth.models import User
+
+
+class House(models.Model):
+    """Model representing a house with address and user permissions."""
+    address = models.CharField(max_length=500, help_text="Full address of the house")
+    city = models.CharField(max_length=100, blank=True)
+    state = models.CharField(max_length=100, blank=True)
+    zip_code = models.CharField(max_length=20, blank=True)
+    country = models.CharField(max_length=100, default='USA')
+    
+    # User relationships with different permission levels
+    owners = models.ManyToManyField(User, related_name='owned_houses', help_text="Users who own this house (full access)")
+    admins = models.ManyToManyField(User, related_name='administered_houses', blank=True, help_text="Users who can manage this house (edit access)")
+    viewers = models.ManyToManyField(User, related_name='viewed_houses', blank=True, help_text="Users who can view this house (read-only access)")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['address']
+        verbose_name_plural = 'Houses'
+    
+    def __str__(self):
+        return self.address
+    
+    def get_absolute_url(self):
+        return reverse('house_detail', kwargs={'pk': self.pk})
+    
+    def can_user_view(self, user):
+        """Check if user can view this house."""
+        if not user or not user.is_authenticated:
+            return False
+        return (self.owners.filter(pk=user.pk).exists() or 
+                self.admins.filter(pk=user.pk).exists() or 
+                self.viewers.filter(pk=user.pk).exists())
+    
+    def can_user_edit(self, user):
+        """Check if user can edit this house."""
+        if not user or not user.is_authenticated:
+            return False
+        return (self.owners.filter(pk=user.pk).exists() or 
+                self.admins.filter(pk=user.pk).exists())
+    
+    def can_user_delete(self, user):
+        """Check if user can delete this house (only owners)."""
+        if not user or not user.is_authenticated:
+            return False
+        return self.owners.filter(pk=user.pk).exists()
 
 
 class Room(models.Model):
     """Model representing a room in the household."""
+    house = models.ForeignKey(House, on_delete=models.CASCADE, related_name='rooms', null=True, blank=True)
     name = models.CharField(max_length=100)
     room_type = models.CharField(
         max_length=50,
@@ -39,6 +89,7 @@ class Room(models.Model):
 
 class Vendor(models.Model):
     """Model representing a vendor/service provider."""
+    house = models.ForeignKey(House, on_delete=models.CASCADE, related_name='vendors', null=True, blank=True)
     name = models.CharField(max_length=200)
     contact_person = models.CharField(max_length=100, blank=True)
     email = models.EmailField(blank=True)
@@ -75,6 +126,7 @@ class Vendor(models.Model):
 
 class Appliance(models.Model):
     """Model representing an appliance in the household."""
+    house = models.ForeignKey(House, on_delete=models.CASCADE, related_name='appliances', null=True, blank=True)
     name = models.CharField(max_length=200)
     brand = models.CharField(max_length=100, blank=True)
     model_number = models.CharField(max_length=100, blank=True)
@@ -120,7 +172,8 @@ class Appliance(models.Model):
 
 class Invoice(models.Model):
     """Model representing a past invoice/bill."""
-    invoice_number = models.CharField(max_length=100, unique=True)
+    house = models.ForeignKey(House, on_delete=models.CASCADE, related_name='invoices', null=True, blank=True)
+    invoice_number = models.CharField(max_length=100)
     vendor = models.ForeignKey(Vendor, on_delete=models.SET_NULL, null=True, blank=True, related_name='invoices')
     invoice_date = models.DateField()
     due_date = models.DateField(null=True, blank=True)
@@ -163,6 +216,7 @@ class Invoice(models.Model):
 
     class Meta:
         ordering = ['-invoice_date', '-created_at']
+        unique_together = [['house', 'invoice_number']]  # Invoice numbers must be unique per house
 
     def __str__(self):
         return f"Invoice #{self.invoice_number} - {self.vendor.name if self.vendor else 'Unknown Vendor'}"
