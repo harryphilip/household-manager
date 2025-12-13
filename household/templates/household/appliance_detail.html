@@ -1,4 +1,5 @@
 {% extends 'household/base.html' %}
+{% load static %}
 
 {% block title %}{{ appliance.name }} - Household Manager{% endblock %}
 
@@ -33,6 +34,96 @@
         <p><strong>Notes:</strong> {{ appliance.notes }}</p>
         {% endif %}
     </div>
+</div>
+
+<div class="card">
+    <h2>User Manual</h2>
+    <div style="margin-bottom: 15px;">
+        {% if appliance.manual_pdf %}
+        <p><strong>Manual PDF:</strong> <a href="{{ appliance.manual_pdf.url }}" target="_blank" class="btn" style="padding: 5px 10px; font-size: 12px;">View/Download PDF</a></p>
+        {% else %}
+        <p><strong>Manual PDF:</strong> Not uploaded</p>
+        {% endif %}
+        {% if appliance.manual_url %}
+        <p><strong>Manual URL:</strong> <a href="{{ appliance.manual_url }}" target="_blank" style="color: #667eea;">{{ appliance.manual_url|truncatechars:50 }}</a></p>
+        {% endif %}
+    </div>
+    <div class="actions" style="margin-top: 10px;">
+        {% if appliance.brand or appliance.model_number %}
+        <form method="post" action="{% url 'search_manual' appliance.pk %}" style="display: inline;">
+            {% csrf_token %}
+            <button type="submit" class="btn" style="padding: 8px 16px;">🔍 Search for Manual Online</button>
+        </form>
+        {% endif %}
+        {% if appliance.manual_url and not appliance.manual_pdf %}
+        <form method="post" action="{% url 'download_manual' appliance.pk %}" style="display: inline;">
+            {% csrf_token %}
+            <button type="submit" class="btn" style="padding: 8px 16px;">⬇️ Download Manual</button>
+        </form>
+        {% endif %}
+        {% if appliance.manual_pdf %}
+        <form method="post" action="{% url 'extract_maintenance' appliance.pk %}" style="display: inline;">
+            {% csrf_token %}
+            <button type="submit" class="btn" style="padding: 8px 16px;">📋 Extract Maintenance Tasks</button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+        <h2>Maintenance Tasks</h2>
+        <a href="{% url 'maintenance_task_create' %}?appliance={{ appliance.pk }}" class="btn" style="padding: 8px 16px;">+ Add Task</a>
+    </div>
+    {% if appliance.maintenance_tasks.all %}
+    <table>
+        <thead>
+            <tr>
+                <th>Task</th>
+                <th>Frequency</th>
+                <th>Last Performed</th>
+                <th>Next Due</th>
+                <th>Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for task in appliance.maintenance_tasks.all %}
+            <tr>
+                <td><a href="{% url 'maintenance_task_detail' task.pk %}" style="color: #667eea; text-decoration: none;">{{ task.task_name }}</a></td>
+                <td>{{ task.get_frequency_display }}</td>
+                <td>{% if task.last_performed %}{{ task.last_performed }}{% else %}Never{% endif %}</td>
+                <td>
+                    {% if task.next_due %}
+                        {% now "Y-m-d" as today %}
+                        {% if task.next_due|date:"Y-m-d" < today %}
+                            <span style="color: #dc3545; font-weight: bold;">{{ task.next_due }} (Overdue!)</span>
+                        {% elif task.next_due|date:"Y-m-d" == today %}
+                            <span style="color: #ffc107; font-weight: bold;">{{ task.next_due }} (Due Today!)</span>
+                        {% else %}
+                            {{ task.next_due }}
+                        {% endif %}
+                    {% else %}
+                        Not scheduled
+                    {% endif %}
+                </td>
+                <td>{% if task.is_active %}<span style="color: green;">Active</span>{% else %}<span style="color: gray;">Inactive</span>{% endif %}</td>
+                <td>
+                    <a href="{% url 'maintenance_task_detail' task.pk %}" class="btn" style="padding: 5px 10px; font-size: 12px;">View</a>
+                    {% if task.is_active %}
+                    <form method="post" action="{% url 'mark_maintenance_complete' task.pk %}" style="display: inline;">
+                        {% csrf_token %}
+                        <button type="submit" class="btn" style="padding: 5px 10px; font-size: 12px;">✓ Complete</button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="empty-state">No maintenance tasks yet. <a href="{% url 'maintenance_task_create' %}?appliance={{ appliance.pk }}">Create one</a> or extract from manual.</p>
+    {% endif %}
 </div>
 
 {% if appliance.invoices.all %}

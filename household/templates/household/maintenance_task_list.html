@@ -1,0 +1,66 @@
+{% extends 'household/base.html' %}
+
+{% block title %}Maintenance Tasks - Household Manager{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+    <h1>Maintenance Tasks</h1>
+    <a href="{% url 'maintenance_task_create' %}" class="btn">Add New Task</a>
+</div>
+
+{% if tasks %}
+<table>
+    <thead>
+        <tr>
+            <th>Appliance</th>
+            <th>Task</th>
+            <th>Frequency</th>
+            <th>Last Performed</th>
+            <th>Next Due</th>
+            <th>Status</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for task in tasks %}
+        <tr>
+            <td><a href="{% url 'appliance_detail' task.appliance.pk %}" style="color: #667eea; text-decoration: none;">{{ task.appliance.name }}</a></td>
+            <td><a href="{% url 'maintenance_task_detail' task.pk %}" style="color: #667eea; text-decoration: none;">{{ task.task_name }}</a></td>
+            <td>{{ task.get_frequency_display }}</td>
+            <td>{% if task.last_performed %}{{ task.last_performed }}{% else %}Never{% endif %}</td>
+            <td>
+                {% if task.next_due %}
+                    {% now "Y-m-d" as today %}
+                    {% if task.next_due|date:"Y-m-d" < today %}
+                        <span style="color: #dc3545; font-weight: bold;">{{ task.next_due }} (Overdue!)</span>
+                    {% elif task.next_due|date:"Y-m-d" == today %}
+                        <span style="color: #ffc107; font-weight: bold;">{{ task.next_due }} (Due Today!)</span>
+                    {% else %}
+                        {{ task.next_due }}
+                    {% endif %}
+                {% else %}
+                    Not scheduled
+                {% endif %}
+            </td>
+            <td>{% if task.is_active %}<span style="color: green;">Active</span>{% else %}<span style="color: gray;">Inactive</span>{% endif %}</td>
+            <td>
+                <a href="{% url 'maintenance_task_detail' task.pk %}" class="btn" style="padding: 5px 10px; font-size: 12px;">View</a>
+                {% if task.is_active %}
+                <form method="post" action="{% url 'mark_maintenance_complete' task.pk %}" style="display: inline;">
+                    {% csrf_token %}
+                    <button type="submit" class="btn" style="padding: 5px 10px; font-size: 12px;">✓ Complete</button>
+                </form>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="empty-state">
+    <p>No maintenance tasks found. Create your first task to get started!</p>
+    <a href="{% url 'maintenance_task_create' %}" class="btn">Add Task</a>
+</div>
+{% endif %}
+{% endblock %}
+

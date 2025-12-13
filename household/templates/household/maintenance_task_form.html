@@ -1,0 +1,67 @@
+{% extends 'household/base.html' %}
+
+{% block title %}{% if object %}Edit Maintenance Task{% else %}Create Maintenance Task{% endif %} - Household Manager{% endblock %}
+
+{% block content %}
+<h1>{% if object %}Edit Maintenance Task{% else %}Create New Maintenance Task{% endif %}</h1>
+
+<form method="post">
+    {% csrf_token %}
+    <div class="form-group">
+        <label for="id_appliance">Appliance *</label>
+        {{ form.appliance }}
+    </div>
+    <div class="form-group">
+        <label for="id_task_name">Task Name *</label>
+        {{ form.task_name }}
+    </div>
+    <div class="form-group">
+        <label for="id_description">Description</label>
+        {{ form.description }}
+    </div>
+    <div class="form-group">
+        <label for="id_frequency">Frequency *</label>
+        {{ form.frequency }}
+    </div>
+    <div class="form-group">
+        <label for="id_interval_days">Custom Interval (Days)</label>
+        {{ form.interval_days }}
+        <small style="color: #666;">Only required if frequency is set to "Custom Interval"</small>
+    </div>
+    <div class="form-group">
+        <label for="id_last_performed">Last Performed</label>
+        {{ form.last_performed }}
+    </div>
+    <div class="form-group">
+        <label for="id_next_due">Next Due</label>
+        {{ form.next_due }}
+    </div>
+    <div class="form-group">
+        <label for="id_estimated_duration">Estimated Duration (minutes)</label>
+        {{ form.estimated_duration }}
+    </div>
+    <div class="form-group">
+        <label for="id_difficulty">Difficulty</label>
+        {{ form.difficulty }}
+    </div>
+    <div class="form-group">
+        <label for="id_parts_needed">Parts Needed</label>
+        {{ form.parts_needed }}
+    </div>
+    <div class="form-group">
+        <label for="id_instructions">Instructions</label>
+        {{ form.instructions }}
+    </div>
+    {% if object %}
+    <div class="form-group">
+        <label for="id_is_active">Active</label>
+        {{ form.is_active }}
+    </div>
+    {% endif %}
+    <div class="form-actions">
+        <button type="submit" class="btn">{% if object %}Update{% else %}Create{% endif %} Task</button>
+        <a href="{% if object %}{% url 'maintenance_task_detail' object.pk %}{% else %}{% url 'maintenance_task_list' %}{% endif %}" class="btn btn-secondary">Cancel</a>
+    </div>
+</form>
+{% endblock %}
+

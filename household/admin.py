@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Room, Appliance, Vendor, Invoice
+from .models import Room, Appliance, Vendor, Invoice, MaintenanceTask
 
 
 @admin.register(Room)
@@ -34,6 +34,16 @@ class InvoiceAdmin(admin.ModelAdmin):
     search_fields = ['invoice_number', 'vendor__name', 'description']
     ordering = ['-invoice_date']
     date_hierarchy = 'invoice_date'
+    readonly_fields = ['created_at', 'updated_at']
+
+
+@admin.register(MaintenanceTask)
+class MaintenanceTaskAdmin(admin.ModelAdmin):
+    list_display = ['task_name', 'appliance', 'frequency', 'last_performed', 'next_due', 'is_active']
+    list_filter = ['frequency', 'difficulty', 'is_active', 'extracted_from_manual']
+    search_fields = ['task_name', 'description', 'appliance__name']
+    ordering = ['appliance', 'next_due']
+    date_hierarchy = 'next_due'
     readonly_fields = ['created_at', 'updated_at']
 
 

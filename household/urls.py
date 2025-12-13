@@ -31,6 +31,19 @@ urlpatterns = [
     path('invoices/create/', views.InvoiceCreateView.as_view(), name='invoice_create'),
     path('invoices/<int:pk>/update/', views.InvoiceUpdateView.as_view(), name='invoice_update'),
     path('invoices/<int:pk>/delete/', views.InvoiceDeleteView.as_view(), name='invoice_delete'),
+    
+    # Manual and Maintenance URLs
+    path('appliances/<int:pk>/search-manual/', views.search_manual, name='search_manual'),
+    path('appliances/<int:pk>/download-manual/', views.download_manual, name='download_manual'),
+    path('appliances/<int:pk>/extract-maintenance/', views.extract_maintenance, name='extract_maintenance'),
+    
+    # Maintenance Task URLs
+    path('maintenance/', views.MaintenanceTaskListView.as_view(), name='maintenance_task_list'),
+    path('maintenance/<int:pk>/', views.MaintenanceTaskDetailView.as_view(), name='maintenance_task_detail'),
+    path('maintenance/create/', views.MaintenanceTaskCreateView.as_view(), name='maintenance_task_create'),
+    path('maintenance/<int:pk>/update/', views.MaintenanceTaskUpdateView.as_view(), name='maintenance_task_update'),
+    path('maintenance/<int:pk>/delete/', views.MaintenanceTaskDeleteView.as_view(), name='maintenance_task_delete'),
+    path('maintenance/<int:pk>/complete/', views.mark_maintenance_complete, name='mark_maintenance_complete'),
 ]
 
 

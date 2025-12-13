@@ -1,0 +1,71 @@
+{% extends 'household/base.html' %}
+
+{% block title %}{{ task.task_name }} - Household Manager{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+    <h1>{{ task.task_name }}</h1>
+    <div class="actions">
+        <a href="{% url 'maintenance_task_update' task.pk %}" class="btn">Edit</a>
+        <a href="{% url 'maintenance_task_delete' task.pk %}" class="btn btn-danger">Delete</a>
+        <a href="{% url 'appliance_detail' task.appliance.pk %}" class="btn btn-secondary">Back to Appliance</a>
+    </div>
+</div>
+
+<div class="card">
+    <div class="detail-section">
+        <h3>Task Information</h3>
+        <p><strong>Appliance:</strong> <a href="{% url 'appliance_detail' task.appliance.pk %}" style="color: #667eea;">{{ task.appliance.name }}</a></p>
+        <p><strong>Description:</strong> {{ task.description|default:"—" }}</p>
+        <p><strong>Frequency:</strong> {{ task.get_frequency_display }}</p>
+        {% if task.interval_days %}
+        <p><strong>Custom Interval:</strong> {{ task.interval_days }} days</p>
+        {% endif %}
+        <p><strong>Last Performed:</strong> {% if task.last_performed %}{{ task.last_performed }}{% else %}Never{% endif %}</p>
+        <p><strong>Next Due:</strong> 
+            {% if task.next_due %}
+                {% now "Y-m-d" as today %}
+                {% if task.next_due|date:"Y-m-d" < today %}
+                    <span style="color: #dc3545; font-weight: bold;">{{ task.next_due }} (Overdue!)</span>
+                {% elif task.next_due|date:"Y-m-d" == today %}
+                    <span style="color: #ffc107; font-weight: bold;">{{ task.next_due }} (Due Today!)</span>
+                {% else %}
+                    {{ task.next_due }}
+                {% endif %}
+            {% else %}
+                Not scheduled
+            {% endif %}
+        </p>
+        <p><strong>Estimated Duration:</strong> {% if task.estimated_duration %}{{ task.estimated_duration }} minutes{% else %}—{% endif %}</p>
+        <p><strong>Difficulty:</strong> {{ task.get_difficulty_display }}</p>
+        <p><strong>Status:</strong> {% if task.is_active %}<span style="color: green;">Active</span>{% else %}<span style="color: gray;">Inactive</span>{% endif %}</p>
+        {% if task.extracted_from_manual %}
+        <p><strong>Source:</strong> <span style="color: #667eea;">Extracted from manual</span></p>
+        {% endif %}
+    </div>
+</div>
+
+{% if task.parts_needed %}
+<div class="card">
+    <h3>Parts Needed</h3>
+    <p>{{ task.parts_needed }}</p>
+</div>
+{% endif %}
+
+{% if task.instructions %}
+<div class="card">
+    <h3>Instructions</h3>
+    <p style="white-space: pre-line;">{{ task.instructions }}</p>
+</div>
+{% endif %}
+
+{% if task.is_active %}
+<div class="card">
+    <form method="post" action="{% url 'mark_maintenance_complete' task.pk %}">
+        {% csrf_token %}
+        <button type="submit" class="btn" style="padding: 12px 24px; font-size: 16px;">✓ Mark as Complete</button>
+    </form>
+</div>
+{% endif %}
+{% endblock %}
+
