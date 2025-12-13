@@ -2,10 +2,63 @@
 Tests for household models.
 """
 from django.test import TestCase
+from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 from datetime import date, timedelta
-from household.models import Room, Appliance, Vendor, Invoice, MaintenanceTask
+from household.models import House, Room, Appliance, Vendor, Invoice, MaintenanceTask
+
+
+class HouseModelTest(TestCase):
+    """Test cases for House model."""
+    
+    def setUp(self):
+        """Set up test data."""
+        self.user = User.objects.create_user('testuser', 'test@example.com', 'password')
+        self.house = House.objects.create(
+            address="123 Test Street",
+            city="Test City",
+            state="TS",
+            zip_code="12345"
+        )
+        self.house.owners.add(self.user)
+    
+    def test_house_creation(self):
+        """Test house can be created."""
+        self.assertEqual(self.house.address, "123 Test Street")
+        self.assertEqual(self.house.city, "Test City")
+        self.assertTrue(self.house.can_user_view(self.user))
+        self.assertTrue(self.house.can_user_edit(self.user))
+        self.assertTrue(self.house.can_user_delete(self.user))
+    
+    def test_house_permissions(self):
+        """Test house permission methods."""
+        admin_user = User.objects.create_user('admin', 'admin@example.com', 'password')
+        viewer_user = User.objects.create_user('viewer', 'viewer@example.com', 'password')
+        other_user = User.objects.create_user('other', 'other@example.com', 'password')
+        
+        self.house.admins.add(admin_user)
+        self.house.viewers.add(viewer_user)
+        
+        # Owner permissions
+        self.assertTrue(self.house.can_user_view(self.user))
+        self.assertTrue(self.house.can_user_edit(self.user))
+        self.assertTrue(self.house.can_user_delete(self.user))
+        
+        # Admin permissions
+        self.assertTrue(self.house.can_user_view(admin_user))
+        self.assertTrue(self.house.can_user_edit(admin_user))
+        self.assertFalse(self.house.can_user_delete(admin_user))
+        
+        # Viewer permissions
+        self.assertTrue(self.house.can_user_view(viewer_user))
+        self.assertFalse(self.house.can_user_edit(viewer_user))
+        self.assertFalse(self.house.can_user_delete(viewer_user))
+        
+        # Other user permissions
+        self.assertFalse(self.house.can_user_view(other_user))
+        self.assertFalse(self.house.can_user_edit(other_user))
+        self.assertFalse(self.house.can_user_delete(other_user))
 
 
 class RoomModelTest(TestCase):
@@ -13,7 +66,9 @@ class RoomModelTest(TestCase):
     
     def setUp(self):
         """Set up test data."""
+        self.house = House.objects.create(address="123 Test Street")
         self.room = Room.objects.create(
+            house=self.house,
             name="Living Room",
             room_type="living_room",
             floor=1,
@@ -42,12 +97,15 @@ class ApplianceModelTest(TestCase):
     
     def setUp(self):
         """Set up test data."""
+        self.house = House.objects.create(address="123 Test Street")
         self.room = Room.objects.create(
+            house=self.house,
             name="Kitchen",
             room_type="kitchen",
             floor=1
         )
         self.appliance = Appliance.objects.create(
+            house=self.house,
             name="Refrigerator",
             brand="Samsung",
             model_number="RF28R7351SG",
@@ -73,6 +131,7 @@ class ApplianceModelTest(TestCase):
     def test_appliance_without_room(self):
         """Test appliance without room assignment."""
         appliance = Appliance.objects.create(
+            house=self.house,
             name="Portable Heater",
             appliance_type="heater"
         )
@@ -85,7 +144,9 @@ class VendorModelTest(TestCase):
     
     def setUp(self):
         """Set up test data."""
+        self.house = House.objects.create(address="123 Test Street")
         self.vendor = Vendor.objects.create(
+            house=self.house,
             name="ABC Plumbing",
             contact_person="John Doe",
             email="john@abcplumbing.com",
@@ -109,15 +170,19 @@ class InvoiceModelTest(TestCase):
     
     def setUp(self):
         """Set up test data."""
+        self.house = House.objects.create(address="123 Test Street")
         self.vendor = Vendor.objects.create(
+            house=self.house,
             name="ABC Plumbing",
             service_type="plumbing"
         )
         self.appliance = Appliance.objects.create(
+            house=self.house,
             name="Water Heater",
             appliance_type="water_heater"
         )
         self.invoice = Invoice.objects.create(
+            house=self.house,
             invoice_number="INV-001",
             vendor=self.vendor,
             invoice_date=date(2024, 1, 15),
@@ -143,6 +208,7 @@ class InvoiceModelTest(TestCase):
     def test_invoice_total_calculation(self):
         """Test invoice total is calculated automatically."""
         invoice = Invoice.objects.create(
+            house=self.house,
             invoice_number="INV-002",
             vendor=self.vendor,
             invoice_date=date.today(),
@@ -155,6 +221,7 @@ class InvoiceModelTest(TestCase):
     def test_invoice_without_vendor(self):
         """Test invoice without vendor."""
         invoice = Invoice.objects.create(
+            house=self.house,
             invoice_number="INV-003",
             invoice_date=date.today(),
             amount=200.00,
@@ -170,7 +237,9 @@ class MaintenanceTaskModelTest(TestCase):
     
     def setUp(self):
         """Set up test data."""
+        self.house = House.objects.create(address="123 Test Street")
         self.appliance = Appliance.objects.create(
+            house=self.house,
             name="Refrigerator",
             brand="Samsung",
             appliance_type="refrigerator"

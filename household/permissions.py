@@ -68,7 +68,7 @@ def filter_by_user_house(queryset, user, house_id=None):
     Filter a queryset to only include objects from houses the user can access.
     
     Args:
-        queryset: QuerySet to filter (must have a 'house' ForeignKey)
+        queryset: QuerySet to filter (must have a 'house' ForeignKey or 'appliance__house')
         user: The user to filter for
         house_id: Optional house ID to filter to a specific house
     
@@ -87,6 +87,15 @@ def filter_by_user_house(queryset, user, house_id=None):
         if not accessible_houses.exists():
             return queryset.none()
     
-    # Filter queryset to only include objects from accessible houses
-    return queryset.filter(house__in=accessible_houses)
+    # Check if queryset model has 'house' field directly
+    model = queryset.model
+    if hasattr(model, 'house'):
+        # Direct house relationship (Room, Appliance, Vendor, Invoice)
+        return queryset.filter(house__in=accessible_houses)
+    elif hasattr(model, 'appliance'):
+        # Indirect house relationship through appliance (MaintenanceTask)
+        return queryset.filter(appliance__house__in=accessible_houses)
+    else:
+        # No house relationship, return empty queryset
+        return queryset.none()
 

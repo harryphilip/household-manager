@@ -5,9 +5,10 @@ from django.test import TestCase, Client
 from django.urls import reverse
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.exceptions import PermissionDenied
 from PIL import Image
 from io import BytesIO
-from household.models import Room, Appliance, Vendor, Invoice, MaintenanceTask
+from household.models import House, Room, Appliance, Vendor, Invoice, MaintenanceTask
 from datetime import date
 
 
@@ -17,22 +18,34 @@ class HomeViewTest(TestCase):
     def setUp(self):
         """Set up test data."""
         self.client = Client()
-        Room.objects.create(name="Living Room", room_type="living_room")
-        Appliance.objects.create(name="Refrigerator", appliance_type="refrigerator")
-        Vendor.objects.create(name="ABC Plumbing", service_type="plumbing")
+        self.user = User.objects.create_user('testuser', 'test@example.com', 'password')
+        self.house = House.objects.create(address="123 Test Street")
+        self.house.owners.add(self.user)
+        self.room = Room.objects.create(house=self.house, name="Living Room", room_type="living_room")
+        self.appliance = Appliance.objects.create(house=self.house, name="Refrigerator", appliance_type="refrigerator")
+        self.vendor = Vendor.objects.create(house=self.house, name="ABC Plumbing", service_type="plumbing")
+    
+    def test_home_view_requires_login(self):
+        """Test home page requires login."""
+        response = self.client.get(reverse('home'))
+        self.assertEqual(response.status_code, 302)  # Redirect to login
+        self.assertIn('/accounts/login', response.url)
     
     def test_home_view(self):
-        """Test home page loads successfully."""
+        """Test home page loads successfully for logged in user."""
+        self.client.login(username='testuser', password='password')
         response = self.client.get(reverse('home'))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Household Manager")
     
     def test_home_view_context(self):
         """Test home view context data."""
+        self.client.login(username='testuser', password='password')
         response = self.client.get(reverse('home'))
         self.assertIn('room_count', response.context)
         self.assertIn('appliance_count', response.context)
         self.assertIn('vendor_count', response.context)
+        self.assertIn('user_houses', response.context)
 
 
 class RoomViewTest(TestCase):
@@ -41,11 +54,23 @@ class RoomViewTest(TestCase):
     def setUp(self):
         """Set up test data."""
         self.client = Client()
+        self.user = User.objects.create_user('testuser', 'test@example.com', 'password')
+        self.other_user = User.objects.create_user('otheruser', 'other@example.com', 'password')
+        self.house = House.objects.create(address="123 Test Street")
+        self.house.owners.add(self.user)
         self.room = Room.objects.create(
+            house=self.house,
             name="Kitchen",
             room_type="kitchen",
             floor=1
         )
+        self.client.login(username='testuser', password='password')
+    
+    def test_room_list_view_requires_login(self):
+        """Test room list requires login."""
+        self.client.logout()
+        response = self.client.get(reverse('room_list'))
+        self.assertEqual(response.status_code, 302)
     
     def test_room_list_view(self):
         """Test room list view."""
@@ -53,28 +78,49 @@ class RoomViewTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Kitchen")
     
+    def test_room_list_view_filters_by_house(self):
+        """Test room list only shows user's houses."""
+        other_house = House.objects.create(address="456 Other Street")
+        other_house.owners.add(self.other_user)
+        Room.objects.create(house=other_house, name="Other Room", room_type="bedroom")
+        
+        response = self.client.get(reverse('room_list'))
+        self.assertContains(response, "Kitchen")
+        self.assertNotContains(response, "Other Room")
+    
     def test_room_detail_view(self):
         """Test room detail view."""
         response = self.client.get(reverse('room_detail', args=[self.room.pk]))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, self.room.name)
     
+    def test_room_detail_view_permission_denied(self):
+        """Test room detail blocks access to other houses."""
+        other_house = House.objects.create(address="456 Other Street")
+        other_house.owners.add(self.other_user)
+        other_room = Room.objects.create(house=other_house, name="Other Room")
+        
+        response = self.client.get(reverse('room_detail', args=[other_room.pk]))
+        self.assertEqual(response.status_code, 403)  # Permission denied
+    
     def test_room_create_view(self):
         """Test room creation."""
         response = self.client.post(reverse('room_create'), {
+            'house': self.house.pk,
             'name': 'Bedroom',
             'room_type': 'bedroom',
             'floor': 2,
             'square_feet': 200.00
         })
         self.assertEqual(response.status_code, 302)  # Redirect after creation
-        self.assertTrue(Room.objects.filter(name='Bedroom').exists())
+        self.assertTrue(Room.objects.filter(name='Bedroom', house=self.house).exists())
     
     def test_room_update_view(self):
         """Test room update."""
         response = self.client.post(
             reverse('room_update', args=[self.room.pk]),
             {
+                'house': self.house.pk,
                 'name': 'Updated Kitchen',
                 'room_type': 'kitchen',
                 'floor': 1
@@ -98,14 +144,19 @@ class ApplianceViewTest(TestCase):
     def setUp(self):
         """Set up test data."""
         self.client = Client()
-        self.room = Room.objects.create(name="Kitchen", room_type="kitchen")
+        self.user = User.objects.create_user('testuser', 'test@example.com', 'password')
+        self.house = House.objects.create(address="123 Test Street")
+        self.house.owners.add(self.user)
+        self.room = Room.objects.create(house=self.house, name="Kitchen", room_type="kitchen")
         self.appliance = Appliance.objects.create(
+            house=self.house,
             name="Refrigerator",
             brand="Samsung",
             model_number="RF28R7351SG",
             appliance_type="refrigerator",
             room=self.room
         )
+        self.client.login(username='testuser', password='password')
     
     def test_appliance_list_view(self):
         """Test appliance list view."""
@@ -122,13 +173,14 @@ class ApplianceViewTest(TestCase):
     def test_appliance_create_view(self):
         """Test appliance creation."""
         response = self.client.post(reverse('appliance_create'), {
+            'house': self.house.pk,
             'name': 'Dishwasher',
             'brand': 'Whirlpool',
             'appliance_type': 'dishwasher',
             'room': self.room.pk
         })
         self.assertEqual(response.status_code, 302)
-        self.assertTrue(Appliance.objects.filter(name='Dishwasher').exists())
+        self.assertTrue(Appliance.objects.filter(name='Dishwasher', house=self.house).exists())
     
     def test_search_manual_view(self):
         """Test search manual functionality."""
@@ -143,7 +195,11 @@ class MaintenanceTaskViewTest(TestCase):
     def setUp(self):
         """Set up test data."""
         self.client = Client()
+        self.user = User.objects.create_user('testuser', 'test@example.com', 'password')
+        self.house = House.objects.create(address="123 Test Street")
+        self.house.owners.add(self.user)
         self.appliance = Appliance.objects.create(
+            house=self.house,
             name="Refrigerator",
             appliance_type="refrigerator"
         )
@@ -154,6 +210,7 @@ class MaintenanceTaskViewTest(TestCase):
             frequency="monthly",
             last_performed=date(2024, 1, 1)
         )
+        self.client.login(username='testuser', password='password')
     
     def test_maintenance_task_list_view(self):
         """Test maintenance task list view."""
@@ -196,11 +253,16 @@ class VendorViewTest(TestCase):
     def setUp(self):
         """Set up test data."""
         self.client = Client()
+        self.user = User.objects.create_user('testuser', 'test@example.com', 'password')
+        self.house = House.objects.create(address="123 Test Street")
+        self.house.owners.add(self.user)
         self.vendor = Vendor.objects.create(
+            house=self.house,
             name="ABC Plumbing",
             email="contact@abcplumbing.com",
             service_type="plumbing"
         )
+        self.client.login(username='testuser', password='password')
     
     def test_vendor_list_view(self):
         """Test vendor list view."""
@@ -221,8 +283,12 @@ class InvoiceViewTest(TestCase):
     def setUp(self):
         """Set up test data."""
         self.client = Client()
-        self.vendor = Vendor.objects.create(name="ABC Plumbing", service_type="plumbing")
+        self.user = User.objects.create_user('testuser', 'test@example.com', 'password')
+        self.house = House.objects.create(address="123 Test Street")
+        self.house.owners.add(self.user)
+        self.vendor = Vendor.objects.create(house=self.house, name="ABC Plumbing", service_type="plumbing")
         self.invoice = Invoice.objects.create(
+            house=self.house,
             invoice_number="INV-001",
             vendor=self.vendor,
             invoice_date=date.today(),
@@ -230,6 +296,7 @@ class InvoiceViewTest(TestCase):
             tax_amount=50.00,
             total_amount=550.00
         )
+        self.client.login(username='testuser', password='password')
     
     def test_invoice_list_view(self):
         """Test invoice list view."""
@@ -250,6 +317,8 @@ class ExtractLabelInfoViewTest(TestCase):
     def setUp(self):
         """Set up test data."""
         self.client = Client()
+        self.user = User.objects.create_user('testuser', 'test@example.com', 'password')
+        self.client.login(username='testuser', password='password')
     
     def create_test_image(self):
         """Create a test image file."""
