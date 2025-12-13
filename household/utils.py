@@ -28,13 +28,153 @@ except ImportError:
     easyocr = None
 
 
-def search_manual_online(brand, model_number, appliance_name):
+def is_valid_pdf_url(url):
+    """
+    Validate that a URL is a proper PDF URL with a domain.
+    Returns True if valid, False otherwise.
+    """
+    if not url:
+        return False
+    
+    # Decode URL if encoded
+    try:
+        from urllib.parse import unquote
+        url = unquote(url)
+    except:
+        pass
+    
+    # Must start with http:// or https://
+    if not url.startswith(('http://', 'https://')):
+        return False
+    
+    # Must have a domain (not just a path)
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        if not parsed.netloc or not parsed.netloc.count('.'):
+            return False
+    except:
+        return False
+    
+    # Must not be a Google search URL
+    if 'google.com/search' in url.lower() or 'google.com/url' in url.lower():
+        return False
+    
+    # Must not be a redirect URL pattern
+    # Check for Google redirect patterns specifically: /url?q= or /url?url=
+    # These are Google's redirect URL formats, not legitimate query parameters
+    if '/url?q=' in url or '/url?url=' in url:
+        return False
+    # Check for redirect URLs in path, but allow legitimate query parameters
+    # Only reject if 'redirect' appears in the path (e.g., /redirect?url=...) not in query params
+    parsed_url = urlparse(url)
+    if 'redirect' in parsed_url.path.lower():
+        return False
+    
+    # Should end with .pdf or have pdf in the path
+    # Check the path part (before query parameters) for .pdf
+    parsed_url = urlparse(url)
+    path_lower = parsed_url.path.lower()
+    url_lower = url.lower()  # Keep for search parameter checks
+    # Accept URLs that end with .pdf in path or have /pdf/ in path
+    # Note: We don't accept URLs just because they're from known manual sites,
+    # as those sites may have non-PDF pages (like support pages)
+    has_pdf_indicator = (path_lower.endswith('.pdf') or '/pdf' in path_lower)
+    
+    if not has_pdf_indicator:
+        return False
+    
+    # Must not contain search query parameters
+    if 'search?q=' in url_lower or 'sca_esv=' in url_lower or 'source=lnms' in url_lower:
+        return False
+    
+    return True
+
+
+def extract_pdf_url_from_google_link(href):
+    """
+    Extract actual PDF URL from Google search result link.
+    Returns the actual URL or None if invalid.
+    """
+    if not href:
+        return None
+    
+    # Handle Google redirect URLs (multiple formats)
+    if href.startswith('/url?q='):
+        # Extract the actual URL from Google's redirect
+        try:
+            from urllib.parse import unquote, parse_qs, urlparse
+            # Get the q parameter value
+            actual_url = href.split('/url?q=')[1].split('&')[0]
+            actual_url = unquote(actual_url)
+            
+            # Validate it's a proper PDF URL
+            if is_valid_pdf_url(actual_url):
+                return actual_url
+        except:
+            pass
+    
+    # Handle /url?url= format (another Google redirect format)
+    if '/url?' in href and 'url=' in href:
+        try:
+            from urllib.parse import unquote, parse_qs, urlparse
+            parsed = urlparse(href)
+            params = parse_qs(parsed.query)
+            if 'url' in params:
+                actual_url = params['url'][0]
+                actual_url = unquote(actual_url)
+                if is_valid_pdf_url(actual_url):
+                    return actual_url
+        except:
+            pass
+    
+    # Handle direct links
+    if href.startswith('http://') or href.startswith('https://'):
+        if is_valid_pdf_url(href):
+            return href
+    
+    return None
+
+
+def search_manual_online(brand, model_number, appliance_name, debug=False, use_openai=True):
     """
     Search for appliance manual online.
+    Tries OpenAI first (if available), then falls back to web scraping.
     Returns a dictionary with 'url' and 'title' if found.
+    Only returns valid PDF URLs with proper domains (not search URLs).
+    
+    Args:
+        brand: Brand name of the appliance
+        model_number: Model number of the appliance
+        appliance_name: Name/type of appliance
+        debug: If True, print debug information
+        use_openai: If True, try OpenAI first (requires OPENAI_API_KEY)
+    
+    Returns:
+        Dictionary with 'url' and 'title' if found, None otherwise
     """
     if not brand and not model_number:
         return None
+    
+    if debug:
+        print(f"Searching for manual: {brand} {model_number} {appliance_name}")
+    
+    # Define headers early so they can be used in all strategies
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+    
+    # Strategy 0: Try OpenAI first (if enabled and API key available)
+    if use_openai:
+        if debug:
+            print("Trying OpenAI search...")
+        openai_result = search_manual_with_openai(brand, model_number, appliance_name)
+        if openai_result:
+            if debug:
+                print(f"OpenAI found: {openai_result.get('url')}")
+            return openai_result
+        elif debug:
+            print("OpenAI search did not find a manual")
     
     # Build search query
     query_parts = []
@@ -49,42 +189,204 @@ def search_manual_online(brand, model_number, appliance_name):
     search_query = quote_plus(query)
     
     # Try multiple search strategies
-    search_urls = [
-        f"https://www.google.com/search?q={search_query}&tbm=isch&tbs=ift:pdf",
-        f"https://www.google.com/search?q={search_query}+filetype:pdf",
+    # Strategy 1: Try manufacturer website directly (for known brands)
+    manufacturer_sites = {
+        'sub zero': 'https://www.subzero-wolf.com',
+        'subzero': 'https://www.subzero-wolf.com',
+        'sub-zero': 'https://www.subzero-wolf.com',
+    }
+    
+    brand_lower = brand.lower() if brand else ''
+    if brand_lower in manufacturer_sites:
+        base_url = manufacturer_sites[brand_lower]
+        # Try common manual paths
+        manual_paths = [
+            f"{base_url}/support/manuals",
+            f"{base_url}/manuals",
+            f"{base_url}/support",
+        ]
+        for path in manual_paths:
+            try:
+                response = requests.get(path, headers=headers, timeout=5)
+                if response.status_code == 200:
+                    # Look for PDF links on the page
+                    soup = BeautifulSoup(response.text, 'html.parser')
+                    links = soup.find_all('a', href=True)
+                    for link in links:
+                        href = link.get('href', '')
+                        # Make absolute URL if relative
+                        if href.startswith('/'):
+                            href = base_url + href
+                        elif not href.startswith('http'):
+                            continue
+                        
+                        # Check if it's a PDF and matches model
+                        if ('.pdf' in href.lower() and 
+                            (model_number.lower() in href.lower() or model_number.lower() in link.get_text().lower())):
+                            if is_valid_pdf_url(href):
+                                return {
+                                    'url': href,
+                                    'title': link.get_text().strip() or f"{brand} {model_number} Manual"
+                                }
+            except:
+                continue
+    
+    # Strategy 2: Try manual library sites
+    manual_library_sites = [
+        f"https://www.manualslib.com/search.html?q={quote_plus(f'{brand} {model_number}')}",
+        f"https://www.manualsonline.com/search.html?q={quote_plus(f'{brand} {model_number}')}",
     ]
     
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
+    for lib_url in manual_library_sites:
+        try:
+            response = requests.get(lib_url, headers=headers, timeout=10)
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.text, 'html.parser')
+                # Look for PDF download links
+                links = soup.find_all('a', href=True)
+                for link in links:
+                    href = link.get('href', '')
+                    # Make absolute if relative
+                    if href.startswith('/'):
+                        from urllib.parse import urlparse
+                        parsed = urlparse(lib_url)
+                        href = f"{parsed.scheme}://{parsed.netloc}{href}"
+                    
+                    if '.pdf' in href.lower() and is_valid_pdf_url(href):
+                        return {
+                            'url': href,
+                            'title': link.get_text().strip() or f"{brand} {model_number} Manual"
+                        }
+        except:
+            continue
+    
+    # Strategy 3: Google search (may be blocked)
+    # Note: Google may block automated searches, but we try anyway
+    search_urls = [
+        f"https://www.google.com/search?q={search_query}+filetype:pdf",
+        f"https://www.google.com/search?q={search_query}&tbm=isch&tbs=ift:pdf",
+        # Try with site: restriction to manufacturer sites
+        f"https://www.google.com/search?q={quote_plus(brand)}+{quote_plus(model_number)}+manual+site:subzero-wolf.com+filetype:pdf" if brand and 'sub' in brand_lower else None,
+    ]
+    # Filter out None values
+    search_urls = [url for url in search_urls if url]
     
     for search_url in search_urls:
         try:
             response = requests.get(search_url, headers=headers, timeout=10)
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, 'html.parser')
+                found_urls = set()  # Track found URLs to avoid duplicates
                 
-                # Look for PDF links
+                # Strategy 1: Look for links with href containing /url?q= or data-ved (Google result links)
                 links = soup.find_all('a', href=True)
+                
                 for link in links:
                     href = link.get('href', '')
-                    if 'pdf' in href.lower() or 'manual' in href.lower():
-                        # Extract actual URL from Google's redirect
-                        if href.startswith('/url?q='):
-                            actual_url = href.split('/url?q=')[1].split('&')[0]
-                        else:
-                            actual_url = href
+                    
+                    # Skip if it's clearly a search URL
+                    if '/search?q=' in href or href.startswith('/search'):
+                        continue
+                    
+                    # Extract actual PDF URL from Google link
+                    actual_url = extract_pdf_url_from_google_link(href)
+                    
+                    if actual_url and actual_url not in found_urls:
+                        found_urls.add(actual_url)
                         
-                        # Verify it's a PDF
-                        if actual_url.lower().endswith('.pdf') or 'pdf' in actual_url.lower():
-                            return {
-                                'url': actual_url,
-                                'title': link.get_text().strip() or f"{brand} {model_number} Manual"
-                            }
+                        # Verify it's actually a PDF
+                        try:
+                            # Make a HEAD request to verify it's a PDF
+                            head_response = requests.head(actual_url, headers=headers, timeout=5, allow_redirects=True)
+                            content_type = head_response.headers.get('Content-Type', '').lower()
+                            
+                            # Check if it's a PDF
+                            if 'pdf' in content_type or actual_url.lower().endswith('.pdf'):
+                                return {
+                                    'url': actual_url,
+                                    'title': link.get_text().strip() or f"{brand} {model_number} Manual"
+                                }
+                        except Exception as head_error:
+                            # If HEAD fails, still accept if URL looks valid and ends with .pdf
+                            if actual_url.lower().endswith('.pdf'):
+                                return {
+                                    'url': actual_url,
+                                    'title': link.get_text().strip() or f"{brand} {model_number} Manual"
+                                }
+                
+                # Strategy 2: Look for direct PDF links in the page text/HTML
+                # Sometimes PDFs are embedded or linked differently
+                page_text = response.text
+                
+                # Look for PDF URLs in the raw HTML using regex
+                import re
+                pdf_url_patterns = [
+                    r'https?://[^\s<>"\'\)]+\.pdf(?:\?[^\s<>"\'\)]*)?',
+                    r'https?://[^\s<>"\'\)]+/[^\s<>"\'\)]*pdf[^\s<>"\'\)]*(?:\.pdf)?',
+                ]
+                
+                for pattern in pdf_url_patterns:
+                    matches = re.findall(pattern, page_text, re.IGNORECASE)
+                    for match in matches:
+                        # Clean up the URL (remove trailing characters and decode)
+                        from urllib.parse import unquote
+                        url = match.split('"')[0].split("'")[0].split('>')[0].split('<')[0].split(')')[0].rstrip('.,;')
+                        url = unquote(url)
+                        
+                        if is_valid_pdf_url(url) and url not in found_urls:
+                            found_urls.add(url)
+                            try:
+                                # Verify it's a PDF
+                                head_response = requests.head(url, headers=headers, timeout=5, allow_redirects=True)
+                                content_type = head_response.headers.get('Content-Type', '').lower()
+                                
+                                if 'pdf' in content_type:
+                                    return {
+                                        'url': url,
+                                        'title': f"{brand} {model_number} Manual"
+                                    }
+                            except:
+                                # If HEAD fails but URL looks valid, accept it
+                                if url.lower().endswith('.pdf'):
+                                    return {
+                                        'url': url,
+                                        'title': f"{brand} {model_number} Manual"
+                                    }
+                
+                # Strategy 3: Look for data-ved attributes which Google uses for result links
+                # These often contain the actual URLs in data attributes
+                result_divs = soup.find_all('div', {'data-ved': True})
+                for div in result_divs:
+                    # Look for links within these divs
+                    inner_links = div.find_all('a', href=True)
+                    for link in inner_links:
+                        href = link.get('href', '')
+                        actual_url = extract_pdf_url_from_google_link(href)
+                        if actual_url and actual_url not in found_urls:
+                            found_urls.add(actual_url)
+                            if actual_url.lower().endswith('.pdf'):
+                                try:
+                                    head_response = requests.head(actual_url, headers=headers, timeout=5, allow_redirects=True)
+                                    content_type = head_response.headers.get('Content-Type', '').lower()
+                                    if 'pdf' in content_type:
+                                        return {
+                                            'url': actual_url,
+                                            'title': link.get_text().strip() or f"{brand} {model_number} Manual"
+                                        }
+                                except:
+                                    if actual_url.lower().endswith('.pdf'):
+                                        return {
+                                            'url': actual_url,
+                                            'title': link.get_text().strip() or f"{brand} {model_number} Manual"
+                                        }
         except Exception as e:
-            print(f"Error searching: {e}")
+            if debug:
+                print(f"Error searching {search_url}: {e}")
             continue
     
+    # If no manual found, return None
+    if debug:
+        print("No manual found through automated search")
     return None
 
 
@@ -222,6 +524,152 @@ def extract_maintenance_info(text, appliance_type=None):
             unique_tasks.append(task)
     
     return unique_tasks[:10]  # Limit to 10 tasks
+
+
+def search_manual_with_openai(brand, model_number, appliance_name):
+    """
+    Use OpenAI to find appliance manual URLs.
+    Leverages OpenAI's knowledge to suggest where manuals are typically hosted.
+    Returns a dictionary with 'url' and 'title' if found.
+    Only returns valid PDF URLs. If only a manufacturer support URL is found,
+    returns None (caller should handle this case appropriately).
+    """
+    from decouple import config
+    
+    api_key = config('OPENAI_API_KEY', default=None)
+    if not api_key:
+        return None
+    
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+        
+        prompt = f"""Find the user manual PDF URL for this appliance:
+- Brand: {brand}
+- Model Number: {model_number}
+- Appliance Type: {appliance_name or 'Unknown'}
+
+Based on your knowledge, provide:
+1. The most likely URL where the manual PDF can be found (manufacturer website, manual library, etc.)
+2. Alternative URLs if the first one doesn't work
+3. The official manufacturer support/manual page URL
+
+Return ONLY a valid PDF URL (must end with .pdf or be a direct link to a PDF file).
+If you cannot find a specific URL, return the manufacturer's support/manual page URL where the user can search.
+
+Format your response as a JSON object with this structure:
+{{
+    "primary_url": "https://example.com/manual.pdf",
+    "alternative_urls": ["https://alt1.com/manual.pdf"],
+    "manufacturer_support_url": "https://manufacturer.com/support/manuals",
+    "confidence": "high|medium|low"
+}}
+
+If you cannot find a PDF URL, set primary_url to null and provide the manufacturer_support_url."""
+        
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",  # Using cheaper model for this task
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant that finds appliance manual PDF URLs. Always return valid URLs in JSON format."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            max_tokens=500
+        )
+        
+        # Parse the response
+        content = response.choices[0].message.content.strip()
+        
+        # Try to extract JSON from response
+        import json
+        import re
+        
+        # Look for JSON in the response
+        json_match = re.search(r'\{.*\}', content, re.DOTALL)
+        
+        if json_match:
+            try:
+                result = json.loads(json_match.group())
+                
+                # Try primary URL first
+                if result.get('primary_url') and is_valid_pdf_url(result['primary_url']):
+                    # Verify it's actually a PDF
+                    try:
+                        headers = {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                        }
+                        head_response = requests.head(result['primary_url'], headers=headers, timeout=5, allow_redirects=True)
+                        content_type = head_response.headers.get('Content-Type', '').lower()
+                        
+                        if 'pdf' in content_type or result['primary_url'].lower().endswith('.pdf'):
+                            return {
+                                'url': result['primary_url'],
+                                'title': f"{brand} {model_number} Manual"
+                            }
+                    except Exception as head_error:
+                        # If HEAD fails, still accept if URL looks valid
+                        if result['primary_url'].lower().endswith('.pdf'):
+                            return {
+                                'url': result['primary_url'],
+                                'title': f"{brand} {model_number} Manual"
+                            }
+                
+                # Try alternative URLs
+                for alt_url in result.get('alternative_urls', []):
+                    if is_valid_pdf_url(alt_url):
+                        try:
+                            headers = {
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                            }
+                            head_response = requests.head(alt_url, headers=headers, timeout=5, allow_redirects=True)
+                            content_type = head_response.headers.get('Content-Type', '').lower()
+                            if 'pdf' in content_type or alt_url.lower().endswith('.pdf'):
+                                return {
+                                    'url': alt_url,
+                                    'title': f"{brand} {model_number} Manual"
+                                }
+                        except:
+                            if alt_url.lower().endswith('.pdf'):
+                                return {
+                                    'url': alt_url,
+                                    'title': f"{brand} {model_number} Manual"
+                                }
+                
+                # If no PDF URL found but we have manufacturer support URL
+                # Return it with a note so the view can handle it appropriately
+                # The view will validate and show a helpful message to the user
+                if result.get('manufacturer_support_url'):
+                    support_url = result['manufacturer_support_url']
+                    # Validate it's at least a valid URL (even if not a PDF)
+                    try:
+                        from urllib.parse import urlparse
+                        parsed = urlparse(support_url)
+                        if parsed.scheme in ('http', 'https') and parsed.netloc:
+                            return {
+                                'url': support_url,
+                                'title': f"{brand} {model_number} Manual (Support Page)",
+                                'note': f'This is the manufacturer support page. Please search for model {model_number} on that page to find the manual PDF.'
+                            }
+                    except:
+                        pass
+                    # If URL is invalid, return None
+                    return None
+            except json.JSONDecodeError:
+                # If JSON parsing fails, try to extract URL from text
+                url_pattern = r'https?://[^\s<>"]+\.pdf'
+                matches = re.findall(url_pattern, content)
+                for match in matches:
+                    if is_valid_pdf_url(match):
+                        return {
+                            'url': match,
+                            'title': f"{brand} {model_number} Manual"
+                        }
+        
+        return None
+        
+    except Exception as e:
+        print(f"OpenAI search error: {e}")
+        return None
 
 
 def extract_maintenance_with_ai(text, appliance_type=None):

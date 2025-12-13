@@ -9,6 +9,7 @@ from PIL import Image, ImageDraw, ImageFont
 from django.core.files.uploadedfile import SimpleUploadedFile
 from household.utils import (
     search_manual_online,
+    search_manual_with_openai,
     download_pdf,
     extract_text_from_pdf,
     extract_maintenance_info,
@@ -16,6 +17,8 @@ from household.utils import (
     extract_text_from_image,
     parse_appliance_info_from_text,
     extract_appliance_info_from_image,
+    is_valid_pdf_url,
+    extract_pdf_url_from_google_link,
     PYTESSERACT_AVAILABLE,
     EASYOCR_AVAILABLE
 )
@@ -25,26 +28,133 @@ from household.models import Appliance, Room
 OCR_AVAILABLE = PYTESSERACT_AVAILABLE or EASYOCR_AVAILABLE
 
 
+class IsValidPdfUrlTest(TestCase):
+    """Test cases for is_valid_pdf_url function."""
+    
+    def test_valid_pdf_url(self):
+        """Test valid PDF URLs."""
+        valid_urls = [
+            "https://example.com/manual.pdf",
+            "http://manufacturer.com/downloads/model123.pdf",
+            "https://support.example.com/files/manual.pdf",
+        ]
+        
+        for url in valid_urls:
+            self.assertTrue(is_valid_pdf_url(url), f"Should be valid: {url}")
+    
+    def test_invalid_google_search_url(self):
+        """Test that Google search URLs are rejected."""
+        invalid_urls = [
+            "https://www.google.com/search?q=Sub+Zero+SubZero+Fridge+manual+pdf&sca_esv=0ee57afbb50ab6e4",
+            "https://www.google.com/url?q=https://example.com/manual.pdf",
+            "https://www.google.com/search?q=test+pdf",
+        ]
+        
+        for url in invalid_urls:
+            self.assertFalse(is_valid_pdf_url(url), f"Should be invalid: {url}")
+    
+    def test_invalid_redirect_urls(self):
+        """Test that redirect URLs are rejected."""
+        invalid_urls = [
+            "/url?q=https://example.com/manual.pdf",
+            "https://example.com/redirect?url=manual.pdf",
+            "https://example.com/manual.pdf&redirect=true",
+        ]
+        
+        for url in invalid_urls:
+            self.assertFalse(is_valid_pdf_url(url), f"Should be invalid: {url}")
+    
+    def test_invalid_urls_without_domain(self):
+        """Test that URLs without proper domains are rejected."""
+        invalid_urls = [
+            "manual.pdf",
+            "/path/to/manual.pdf",
+            "file:///path/to/manual.pdf",
+        ]
+        
+        for url in invalid_urls:
+            self.assertFalse(is_valid_pdf_url(url), f"Should be invalid: {url}")
+    
+    def test_invalid_non_pdf_urls(self):
+        """Test that non-PDF URLs are rejected."""
+        invalid_urls = [
+            "https://example.com/manual.html",
+            "https://example.com/page",
+            "https://example.com/download",
+        ]
+        
+        for url in invalid_urls:
+            self.assertFalse(is_valid_pdf_url(url), f"Should be invalid: {url}")
+
+
+class ExtractPdfUrlFromGoogleLinkTest(TestCase):
+    """Test cases for extract_pdf_url_from_google_link function."""
+    
+    def test_extract_from_google_redirect(self):
+        """Test extracting URL from Google redirect link."""
+        google_link = "/url?q=https://example.com/manual.pdf&sa=U&ved=0ahUKEwiAzf-FnruRAxU7KlkFHTi8OasQ_AUIBCgA"
+        result = extract_pdf_url_from_google_link(google_link)
+        
+        self.assertEqual(result, "https://example.com/manual.pdf")
+    
+    def test_extract_direct_url(self):
+        """Test extracting direct PDF URL."""
+        direct_url = "https://example.com/manual.pdf"
+        result = extract_pdf_url_from_google_link(direct_url)
+        
+        self.assertEqual(result, direct_url)
+    
+    def test_reject_google_search_url(self):
+        """Test that Google search URLs are rejected."""
+        search_url = "https://www.google.com/search?q=test+pdf&sca_esv=0ee57afbb50ab6e4"
+        result = extract_pdf_url_from_google_link(search_url)
+        
+        self.assertIsNone(result)
+    
+    def test_reject_invalid_urls(self):
+        """Test that invalid URLs are rejected."""
+        invalid_urls = [
+            "/url?q=https://www.google.com/search?q=test",
+            "https://www.google.com/url?q=test",
+            "",
+            None,
+        ]
+        
+        for url in invalid_urls:
+            result = extract_pdf_url_from_google_link(url)
+            self.assertIsNone(result, f"Should reject: {url}")
+
+
 class SearchManualOnlineTest(TestCase):
     """Test cases for search_manual_online function."""
     
     def test_search_with_brand_and_model(self):
         """Test search with brand and model number."""
         with patch('household.utils.requests.get') as mock_get:
-            # Mock HTML response with PDF link
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_response.text = '''
-            <html>
-                <a href="/url?q=https://example.com/manual.pdf&sa=U">Manual PDF</a>
-            </html>
-            '''
-            mock_get.return_value = mock_response
-            
-            result = search_manual_online("Samsung", "RF28R7351SG", "Refrigerator")
-            
-            # Should attempt to search
-            mock_get.assert_called()
+            with patch('household.utils.requests.head') as mock_head:
+                # Mock HTML response with PDF link
+                mock_response = MagicMock()
+                mock_response.status_code = 200
+                mock_response.text = '''
+                <html>
+                    <a href="/url?q=https://example.com/manual.pdf&sa=U">Manual PDF</a>
+                </html>
+                '''
+                mock_get.return_value = mock_response
+                
+                # Mock HEAD request to verify PDF
+                mock_head_response = MagicMock()
+                mock_head_response.headers = {'Content-Type': 'application/pdf'}
+                mock_head.return_value = mock_head_response
+                
+                result = search_manual_online("Samsung", "RF28R7351SG", "Refrigerator")
+                
+                # Should attempt to search
+                mock_get.assert_called()
+                # Should return valid result if URL is valid
+                if result:
+                    self.assertIn('url', result)
+                    self.assertTrue(is_valid_pdf_url(result['url']))
     
     def test_search_without_brand_or_model(self):
         """Test search without brand or model returns None."""
@@ -60,6 +170,91 @@ class SearchManualOnlineTest(TestCase):
             
             # Should return None on error
             self.assertIsNone(result)
+    
+    def test_search_filters_invalid_urls(self):
+        """Test that search filters out invalid URLs."""
+        with patch('household.utils.requests.get') as mock_get:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            # Include both valid and invalid links
+            mock_response.text = '''
+            <html>
+                <a href="/url?q=https://www.google.com/search?q=test&sca_esv=123">Invalid</a>
+                <a href="/url?q=https://example.com/manual.pdf&sa=U">Valid PDF</a>
+            </html>
+            '''
+            mock_get.return_value = mock_response
+            
+            with patch('household.utils.requests.head') as mock_head:
+                mock_head_response = MagicMock()
+                mock_head_response.headers = {'Content-Type': 'application/pdf'}
+                mock_head.return_value = mock_head_response
+                
+                result = search_manual_online("Samsung", "RF28R7351SG", "Refrigerator", use_openai=False)
+                
+                # Should only return valid PDF URL
+                if result:
+                    self.assertTrue(is_valid_pdf_url(result['url']))
+                    self.assertNotIn('google.com/search', result['url'])
+
+
+class SearchManualWithOpenAiTest(TestCase):
+    """Test cases for search_manual_with_openai function."""
+    
+    def test_search_without_api_key(self):
+        """Test that search returns None when no API key is available."""
+        with patch('decouple.config') as mock_config:
+            mock_config.return_value = None  # No API key
+            
+            result = search_manual_with_openai("Samsung", "RF28R7351SG", "Refrigerator")
+            
+            self.assertIsNone(result)
+    
+    def test_search_with_openai_success(self):
+        """Test successful OpenAI search."""
+        with patch('decouple.config') as mock_config:
+            mock_config.return_value = "test-api-key"
+            
+            # Patch OpenAI where it's imported (inside the function)
+            with patch('openai.OpenAI') as mock_openai_class:
+                mock_client = MagicMock()
+                mock_openai_class.return_value = mock_client
+                
+                # Mock the chat completion response
+                mock_response = MagicMock()
+                mock_choice = MagicMock()
+                mock_message = MagicMock()
+                mock_message.content = '{"primary_url": "https://example.com/manual.pdf", "confidence": "high"}'
+                mock_choice.message = mock_message
+                mock_response.choices = [mock_choice]
+                mock_client.chat.completions.create.return_value = mock_response
+                
+                # Mock HEAD request to verify PDF
+                with patch('household.utils.requests.head') as mock_head:
+                    mock_head_response = MagicMock()
+                    mock_head_response.headers = {'Content-Type': 'application/pdf'}
+                    mock_head.return_value = mock_head_response
+                    
+                    result = search_manual_with_openai("Samsung", "RF28R7351SG", "Refrigerator")
+                    
+                    # Should return a result
+                    if result:
+                        self.assertIn('url', result)
+                        self.assertTrue(is_valid_pdf_url(result['url']))
+    
+    def test_search_handles_openai_errors(self):
+        """Test that search handles OpenAI API errors gracefully."""
+        with patch('decouple.config') as mock_config:
+            mock_config.return_value = "test-api-key"
+            
+            # Patch OpenAI where it's imported (inside the function)
+            with patch('openai.OpenAI') as mock_openai_class:
+                mock_openai_class.side_effect = Exception("OpenAI API error")
+                
+                result = search_manual_with_openai("Samsung", "RF28R7351SG", "Refrigerator")
+                
+                # Should return None on error
+                self.assertIsNone(result)
 
 
 class DownloadPdfTest(TestCase):

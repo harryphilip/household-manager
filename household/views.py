@@ -225,6 +225,8 @@ class InvoiceDeleteView(DeleteView):
 @require_http_methods(["POST"])
 def search_manual(request, pk):
     """Search for appliance manual online."""
+    from .utils import is_valid_pdf_url
+    
     appliance = get_object_or_404(Appliance, pk=pk)
     
     if not appliance.brand and not appliance.model_number:
@@ -234,9 +236,23 @@ def search_manual(request, pk):
     try:
         result = search_manual_online(appliance.brand, appliance.model_number, appliance.name)
         if result:
-            appliance.manual_url = result['url']
-            appliance.save()
-            messages.success(request, f'Manual found! URL saved. You can download it now.')
+            url = result.get('url')
+            # Check if this is a support page URL (non-PDF) that should be handled differently
+            if result.get('note'):
+                # This is a support page URL, not a direct PDF
+                support_url = url
+                messages.info(request, 
+                    f'Found manufacturer support page: {support_url}. '
+                    f'Please search for model {appliance.model_number} on that page to find the manual PDF.')
+                return redirect('appliance_detail', pk=pk)
+            
+            # Double-check URL is valid PDF before saving
+            if url and is_valid_pdf_url(url):
+                appliance.manual_url = url
+                appliance.save()
+                messages.success(request, f'Manual found! URL saved. You can download it now.')
+            else:
+                messages.warning(request, 'Found a link but it was not a valid PDF URL. Try uploading manually.')
         else:
             messages.warning(request, 'No manual found online. Try uploading manually.')
     except Exception as e:

@@ -31,7 +31,13 @@ pip install -r requirements.txt
      ```bash
      python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
      ```
-   - Edit `.env` and replace `your-secret-key-here-change-this-in-production` with the generated key
+   - Edit `.env` and replace `your-secret-key-here` with the generated key
+   - **IMPORTANT**: For production deployments:
+     - Set `DEBUG=False` in `.env` (default in `.env.example` is `False` for safety)
+     - Update `ALLOWED_HOSTS` with your actual domain(s)
+   - (Optional) Add your OpenAI API key for manual search and maintenance extraction:
+     - Get your API key from: https://platform.openai.com/api-keys
+     - Edit `.env` and replace `your-openai-api-key-here` with your actual API key
 
 4. Run migrations:
 ```bash
