@@ -18,7 +18,7 @@ from .permissions import (
 from .utils import (
     search_manual_online, download_pdf, extract_text_from_pdf,
     extract_maintenance_info, extract_maintenance_with_ai,
-    extract_appliance_info_from_image
+    extract_appliance_info_from_image, extract_invoice_data_from_pdf
 )
 
 
@@ -493,6 +493,72 @@ class InvoiceCreateView(LoginRequiredMixin, CreateView):
         messages.success(self.request, 'Invoice created successfully!')
         
         return response
+
+
+@login_required
+@require_http_methods(["POST"])
+def process_invoice_pdf(request):
+    """
+    Process uploaded invoice PDF and extract data using OCR.
+    Returns JSON with extracted invoice data.
+    """
+    if 'pdf_file' not in request.FILES:
+        return JsonResponse({'error': 'No PDF file provided'}, status=400)
+    
+    pdf_file = request.FILES['pdf_file']
+    
+    # Validate file type
+    if not pdf_file.name.lower().endswith('.pdf'):
+        return JsonResponse({'error': 'File must be a PDF'}, status=400)
+    
+    try:
+        # Extract text from PDF
+        pdf_file.seek(0)
+        pdf_text = extract_text_from_pdf(pdf_file)
+        
+        if not pdf_text or len(pdf_text.strip()) < 50:
+            return JsonResponse({
+                'error': 'Could not extract text from PDF. The PDF might be scanned or corrupted. Please try uploading a text-based PDF or manually enter the invoice information.'
+            }, status=400)
+        
+        # Get existing vendors for matching
+        user_houses = get_user_houses(request.user)
+        existing_vendors = list(Vendor.objects.filter(house__in=user_houses).values_list('name', flat=True))
+        
+        # Extract invoice data
+        invoice_data = extract_invoice_data_from_pdf(pdf_text, existing_vendors)
+        
+        # Check if vendor exists, if not, prepare vendor creation data
+        vendor_id = None
+        vendor_data = None
+        if invoice_data.get('vendor_name'):
+            vendor = Vendor.objects.filter(
+                house__in=user_houses,
+                name__icontains=invoice_data['vendor_name']
+            ).first()
+            
+            if vendor:
+                vendor_id = vendor.pk
+            else:
+                # Prepare vendor data for creation
+                vendor_data = {
+                    'name': invoice_data.get('vendor_name'),
+                    'email': invoice_data.get('vendor_email'),
+                    'phone': invoice_data.get('vendor_phone'),
+                    'address': invoice_data.get('vendor_address'),
+                }
+        
+        return JsonResponse({
+            'success': True,
+            'invoice_data': invoice_data,
+            'vendor_id': vendor_id,
+            'vendor_data': vendor_data,
+        })
+        
+    except Exception as e:
+        return JsonResponse({
+            'error': f'Error processing PDF: {str(e)}'
+        }, status=500)
 
 
 class InvoiceUpdateView(LoginRequiredMixin, UpdateView):

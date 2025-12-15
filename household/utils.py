@@ -448,6 +448,212 @@ def extract_text_from_pdf(pdf_file):
     return text
 
 
+def extract_invoice_data_from_pdf(pdf_text, existing_vendors=None):
+    """
+    Extract invoice data from PDF text using OpenAI.
+    
+    Args:
+        pdf_text: Text extracted from the invoice PDF
+        existing_vendors: Optional list of existing vendor names to match against
+    
+    Returns:
+        Dictionary with extracted invoice data:
+        {
+            'invoice_number': str,
+            'invoice_date': str (YYYY-MM-DD),
+            'due_date': str (YYYY-MM-DD) or None,
+            'vendor_name': str,
+            'vendor_email': str or None,
+            'vendor_phone': str or None,
+            'vendor_address': str or None,
+            'line_items': [
+                {
+                    'description': str,
+                    'quantity': float,
+                    'unit_price': float,
+                    'line_total': float
+                }
+            ],
+            'subtotal': float,
+            'tax_amount': float,
+            'total_amount': float,
+            'notes': str or None
+        }
+    """
+    from decouple import config
+    import json
+    import re
+    from datetime import datetime
+    
+    # Try to use OpenAI for intelligent parsing
+    openai_api_key = config('OPENAI_API_KEY', default=None)
+    
+    if openai_api_key:
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=openai_api_key)
+            
+            # Build vendor matching context
+            vendor_context = ""
+            if existing_vendors:
+                vendor_context = f"\n\nExisting vendors in the system: {', '.join(existing_vendors)}. Try to match the vendor name from the invoice to one of these if possible."
+            
+            prompt = f"""Extract invoice information from the following invoice text. Return ONLY a valid JSON object with no additional text.
+
+Invoice Text:
+{pdf_text[:4000]}{vendor_context}
+
+Extract the following information:
+1. Invoice number (look for "Invoice #", "Invoice Number", "INV", etc.)
+2. Invoice date (convert to YYYY-MM-DD format)
+3. Due date if present (convert to YYYY-MM-DD format, or null if not found)
+4. Vendor/company name (the company that issued the invoice)
+5. Vendor email if present
+6. Vendor phone if present
+7. Vendor address if present
+8. Line items (description, quantity, unit price, line total for each item)
+9. Subtotal amount
+10. Tax amount
+11. Total amount
+12. Any additional notes or terms
+
+Return a JSON object with this exact structure:
+{{
+    "invoice_number": "string or null",
+    "invoice_date": "YYYY-MM-DD or null",
+    "due_date": "YYYY-MM-DD or null",
+    "vendor_name": "string or null",
+    "vendor_email": "string or null",
+    "vendor_phone": "string or null",
+    "vendor_address": "string or null",
+    "line_items": [
+        {{
+            "description": "string",
+            "quantity": 1.0,
+            "unit_price": 0.00,
+            "line_total": 0.00
+        }}
+    ],
+    "subtotal": 0.00,
+    "tax_amount": 0.00,
+    "total_amount": 0.00,
+    "notes": "string or null"
+}}
+
+If a field cannot be found, use null. For amounts, use numbers (not strings). Return ONLY the JSON object, no other text."""
+            
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant that extracts structured data from invoices. Always return valid JSON only, no additional text."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,
+                max_tokens=2000
+            )
+            
+            content = response.choices[0].message.content.strip()
+            
+            # Extract JSON from response
+            json_match = re.search(r'\{.*\}', content, re.DOTALL)
+            if json_match:
+                try:
+                    result = json.loads(json_match.group())
+                    return result
+                except json.JSONDecodeError:
+                    pass
+        except Exception as e:
+            print(f"OpenAI invoice extraction error: {e}")
+    
+    # Fallback to regex-based extraction if OpenAI fails
+    return extract_invoice_data_regex(pdf_text)
+
+
+def extract_invoice_data_regex(pdf_text):
+    """
+    Fallback regex-based extraction of invoice data.
+    Less accurate than AI but works without OpenAI.
+    """
+    import re
+    from datetime import datetime
+    
+    result = {
+        'invoice_number': None,
+        'invoice_date': None,
+        'due_date': None,
+        'vendor_name': None,
+        'vendor_email': None,
+        'vendor_phone': None,
+        'vendor_address': None,
+        'line_items': [],
+        'subtotal': 0.0,
+        'tax_amount': 0.0,
+        'total_amount': 0.0,
+        'notes': None
+    }
+    
+    # Extract invoice number
+    invoice_num_patterns = [
+        r'invoice\s*#?\s*:?\s*([A-Z0-9\-]+)',
+        r'invoice\s+number\s*:?\s*([A-Z0-9\-]+)',
+        r'inv\s*#?\s*:?\s*([A-Z0-9\-]+)',
+    ]
+    for pattern in invoice_num_patterns:
+        match = re.search(pattern, pdf_text, re.IGNORECASE)
+        if match:
+            result['invoice_number'] = match.group(1).strip()
+            break
+    
+    # Extract dates
+    date_patterns = [
+        r'invoice\s+date\s*:?\s*(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})',
+        r'date\s*:?\s*(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})',
+    ]
+    for pattern in date_patterns:
+        match = re.search(pattern, pdf_text, re.IGNORECASE)
+        if match:
+            try:
+                date_str = match.group(1)
+                # Try to parse common date formats
+                for fmt in ['%m/%d/%Y', '%m-%d-%Y', '%m/%d/%y', '%m-%d-%y', '%Y-%m-%d']:
+                    try:
+                        dt = datetime.strptime(date_str, fmt)
+                        result['invoice_date'] = dt.strftime('%Y-%m-%d')
+                        break
+                    except:
+                        continue
+            except:
+                pass
+            break
+    
+    # Extract amounts
+    total_patterns = [
+        r'total\s*:?\s*\$?\s*([\d,]+\.?\d*)',
+        r'amount\s+due\s*:?\s*\$?\s*([\d,]+\.?\d*)',
+    ]
+    for pattern in total_patterns:
+        match = re.search(pattern, pdf_text, re.IGNORECASE)
+        if match:
+            try:
+                amount_str = match.group(1).replace(',', '')
+                result['total_amount'] = float(amount_str)
+            except:
+                pass
+            break
+    
+    # Extract vendor email
+    email_match = re.search(r'([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})', pdf_text)
+    if email_match:
+        result['vendor_email'] = email_match.group(1)
+    
+    # Extract phone
+    phone_match = re.search(r'(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})', pdf_text)
+    if phone_match:
+        result['vendor_phone'] = phone_match.group(1)
+    
+    return result
+
+
 def extract_maintenance_info(text, appliance_type=None):
     """
     Extract maintenance information from manual text.

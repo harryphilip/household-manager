@@ -26,6 +26,17 @@
             <div style="color: #dc3545; font-size: 0.875em; margin-top: 5px;">{{ form.house.errors }}</div>
         {% endif %}
     </div>
+    
+    <!-- PDF Upload and Processing Section -->
+    <div class="form-group" style="margin-top: 20px; padding: 20px; background-color: #f8f9fa; border-radius: 5px; border: 2px dashed #dee2e6;">
+        <h3 style="margin-top: 0; margin-bottom: 15px; font-size: 1.2em;">📄 Upload Invoice PDF (Optional)</h3>
+        <p style="color: #666; margin-bottom: 15px;">Upload an invoice PDF to automatically extract and fill in invoice information, line items, and vendor details.</p>
+        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+            <input type="file" id="invoice-pdf-upload" accept=".pdf" style="flex: 1; min-width: 200px; padding: 8px; border: 1px solid #ced4da; border-radius: 4px;">
+            <button type="button" id="process-pdf-btn" class="btn btn-primary" style="padding: 8px 20px; white-space: nowrap;" disabled>Process PDF</button>
+        </div>
+        <div id="pdf-processing-status" style="margin-top: 10px; display: none;"></div>
+    </div>
     <div class="form-group">
         <label for="id_invoice_number">Invoice Number *</label>
         {{ form.invoice_number }}
@@ -219,6 +230,161 @@ document.addEventListener('DOMContentLoaded', function() {
         formset.appendChild(newRow);
         formCount++;
         totalFormsInput.value = formCount;
+    });
+    
+    // PDF Processing
+    const pdfUploadInput = document.getElementById('invoice-pdf-upload');
+    const processPdfBtn = document.getElementById('process-pdf-btn');
+    const pdfStatusDiv = document.getElementById('pdf-processing-status');
+    
+    pdfUploadInput.addEventListener('change', function() {
+        processPdfBtn.disabled = !this.files || this.files.length === 0;
+    });
+    
+    processPdfBtn.addEventListener('click', function() {
+        const file = pdfUploadInput.files[0];
+        if (!file) {
+            alert('Please select a PDF file first.');
+            return;
+        }
+        
+        // Show processing status
+        pdfStatusDiv.style.display = 'block';
+        pdfStatusDiv.innerHTML = '<div style="color: #0c5460; background-color: #d1ecf1; padding: 10px; border-radius: 4px;">Processing PDF... Please wait.</div>';
+        processPdfBtn.disabled = true;
+        
+        // Create FormData
+        const formData = new FormData();
+        formData.append('pdf_file', file);
+        
+        // Get CSRF token
+        const csrftoken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+        
+        // Send request
+        fetch('{% url "process_invoice_pdf" %}', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': csrftoken
+            },
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                pdfStatusDiv.innerHTML = `<div style="color: #721c24; background-color: #f8d7da; padding: 10px; border-radius: 4px;">Error: ${data.error}</div>`;
+                processPdfBtn.disabled = false;
+                return;
+            }
+            
+            if (data.success) {
+                // Fill in invoice fields
+                const invoiceData = data.invoice_data;
+                
+                // Fill basic invoice fields
+                if (invoiceData.invoice_number) {
+                    document.getElementById('id_invoice_number').value = invoiceData.invoice_number;
+                }
+                if (invoiceData.invoice_date) {
+                    document.getElementById('id_invoice_date').value = invoiceData.invoice_date;
+                }
+                if (invoiceData.due_date) {
+                    document.getElementById('id_due_date').value = invoiceData.due_date;
+                }
+                if (invoiceData.tax_amount) {
+                    document.getElementById('id_tax_amount').value = invoiceData.tax_amount;
+                }
+                if (invoiceData.total_amount) {
+                    document.getElementById('id_total_amount').value = invoiceData.total_amount;
+                }
+                if (invoiceData.notes) {
+                    document.getElementById('id_notes').value = invoiceData.notes;
+                }
+                
+                // Fill vendor
+                if (data.vendor_id) {
+                    document.getElementById('id_vendor').value = data.vendor_id;
+                } else if (data.vendor_data) {
+                    // Show message that vendor needs to be created
+                    pdfStatusDiv.innerHTML += `<div style="color: #856404; background-color: #fff3cd; padding: 10px; border-radius: 4px; margin-top: 10px;">Note: Vendor "${data.vendor_data.name}" not found. Please create the vendor first or select an existing one.</div>`;
+                }
+                
+                // Fill line items
+                if (invoiceData.line_items && invoiceData.line_items.length > 0) {
+                    const tbody = document.getElementById('line-items-table').querySelector('tbody');
+                    const totalFormsInput = document.querySelector('input[name="line_items-TOTAL_FORMS"]');
+                    let currentFormCount = parseInt(totalFormsInput.value) || 0;
+                    
+                    // Clear existing empty rows
+                    const existingRows = tbody.querySelectorAll('.line-item-row');
+                    existingRows.forEach(row => {
+                        const descInput = row.querySelector('input[name*="description"]');
+                        if (descInput && !descInput.value) {
+                            row.remove();
+                            currentFormCount--;
+                        }
+                    });
+                    
+                    // Add line items
+                    invoiceData.line_items.forEach((item, index) => {
+                        let row;
+                        if (index === 0 && currentFormCount === 0) {
+                            // Use first existing row
+                            row = tbody.querySelector('.line-item-row');
+                            if (!row) {
+                                // Create new row if none exists
+                                const firstRow = tbody.querySelector('tr');
+                                if (firstRow) {
+                                    row = firstRow.cloneNode(true);
+                                    tbody.appendChild(row);
+                                }
+                            }
+                        } else {
+                            // Clone first row
+                            const firstRow = tbody.querySelector('.line-item-row');
+                            if (firstRow) {
+                                row = firstRow.cloneNode(true);
+                                tbody.appendChild(row);
+                                
+                                // Update form indices
+                                row.querySelectorAll('input, select').forEach(input => {
+                                    if (input.name) {
+                                        input.name = input.name.replace(/-\d+-/, `-${currentFormCount}-`);
+                                        input.id = input.id.replace(/-\d+-/, `-${currentFormCount}-`);
+                                    }
+                                });
+                            } else {
+                                continue;
+                            }
+                        }
+                        
+                        if (row) {
+                            // Fill in line item data
+                            const descInput = row.querySelector('input[name*="description"]');
+                            const qtyInput = row.querySelector('input[name*="quantity"]');
+                            const priceInput = row.querySelector('input[name*="unit_price"]');
+                            const totalInput = row.querySelector('input[name*="line_total"]');
+                            
+                            if (descInput) descInput.value = item.description || '';
+                            if (qtyInput) qtyInput.value = item.quantity || 1;
+                            if (priceInput) priceInput.value = item.unit_price || 0;
+                            if (totalInput) totalInput.value = item.line_total || (item.quantity * item.unit_price) || 0;
+                            
+                            currentFormCount++;
+                        }
+                    });
+                    
+                    totalFormsInput.value = currentFormCount;
+                }
+                
+                // Show success message
+                pdfStatusDiv.innerHTML = `<div style="color: #155724; background-color: #d4edda; padding: 10px; border-radius: 4px;">✓ PDF processed successfully! Invoice fields have been filled in. Please review and adjust as needed.</div>`;
+                processPdfBtn.disabled = false;
+            }
+        })
+        .catch(error => {
+            pdfStatusDiv.innerHTML = `<div style="color: #721c24; background-color: #f8d7da; padding: 10px; border-radius: 4px;">Error: ${error.message}</div>`;
+            processPdfBtn.disabled = false;
+        });
     });
 });
 </script>

@@ -38,6 +38,7 @@ urlpatterns = [
     path('invoices/create/', views.InvoiceCreateView.as_view(), name='invoice_create'),
     path('invoices/<int:pk>/update/', views.InvoiceUpdateView.as_view(), name='invoice_update'),
     path('invoices/<int:pk>/delete/', views.InvoiceDeleteView.as_view(), name='invoice_delete'),
+    path('invoices/process-pdf/', views.process_invoice_pdf, name='process_invoice_pdf'),
     
     # Manual and Maintenance URLs
     path('appliances/<int:pk>/search-manual/', views.search_manual, name='search_manual'),
