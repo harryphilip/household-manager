@@ -207,7 +207,7 @@ class Invoice(models.Model):
     due_date = models.DateField(null=True, blank=True)
     
     # Legacy fields - kept for backward compatibility, but will be calculated from line items if available
-    amount = models.DecimalField(max_digits=10, decimal_places=2, help_text="Subtotal (calculated from line items if available)")
+    amount = models.DecimalField(max_digits=10, decimal_places=2, default=0, help_text="Subtotal (calculated from line items if available)")
     tax_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0, help_text="Total tax amount")
     total_amount = models.DecimalField(max_digits=10, decimal_places=2, help_text="Grand total (amount + tax_amount)")
     

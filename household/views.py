@@ -10,7 +10,7 @@ from django.utils import timezone
 from datetime import date
 import json
 from .models import House, Room, Appliance, Vendor, Invoice, InvoiceLineItem, MaintenanceTask
-from .forms import InvoiceLineItemFormSet
+from .forms import InvoiceLineItemFormSet, InvoiceForm, ApplianceForm, MaintenanceTaskForm
 from .permissions import (
     get_user_houses, get_user_editable_houses, require_house_access,
     filter_by_user_house
@@ -219,10 +219,8 @@ class ApplianceDetailView(LoginRequiredMixin, DetailView):
 
 class ApplianceCreateView(LoginRequiredMixin, CreateView):
     model = Appliance
+    form_class = ApplianceForm
     template_name = 'household/appliance_form.html'
-    fields = ['house', 'name', 'brand', 'model_number', 'serial_number', 'appliance_type', 
-              'room', 'purchase_date', 'warranty_expiry', 'purchase_price', 
-              'label_image', 'manual_pdf', 'notes']
     success_url = reverse_lazy('appliance_list')
 
     def get_form(self, form_class=None):
@@ -244,10 +242,8 @@ class ApplianceCreateView(LoginRequiredMixin, CreateView):
 
 class ApplianceUpdateView(LoginRequiredMixin, UpdateView):
     model = Appliance
+    form_class = ApplianceForm
     template_name = 'household/appliance_form.html'
-    fields = ['house', 'name', 'brand', 'model_number', 'serial_number', 'appliance_type', 
-              'room', 'purchase_date', 'warranty_expiry', 'purchase_price', 
-              'label_image', 'manual_pdf', 'notes']
     success_url = reverse_lazy('appliance_list')
 
     def get_object(self, queryset=None):
@@ -394,10 +390,8 @@ class InvoiceDetailView(LoginRequiredMixin, DetailView):
 
 class InvoiceCreateView(LoginRequiredMixin, CreateView):
     model = Invoice
+    form_class = InvoiceForm
     template_name = 'household/invoice_form.html'
-    fields = ['house', 'invoice_number', 'vendor', 'invoice_date', 'due_date', 'amount', 
-              'tax_amount', 'total_amount', 'category', 'description', 'paid', 
-              'paid_date', 'payment_method', 'invoice_file', 'related_appliance', 'notes']
     success_url = reverse_lazy('invoice_list')
 
     def get_form(self, form_class=None):
@@ -454,35 +448,57 @@ class InvoiceCreateView(LoginRequiredMixin, CreateView):
             form.add_error('related_appliance', 'Appliance must belong to the selected house.')
             return self.form_invalid(form)
         
+        # Check if line items are provided
+        line_items = InvoiceLineItemFormSet(self.request.POST, instance=None)
+        # Update formset forms to have house context for validation
+        for line_form in line_items.forms:
+            if house:
+                line_form.fields['rooms'].queryset = house.rooms.all()
+                line_form.fields['appliances'].queryset = house.appliances.all()
+        
+        # Validate line items first
+        if line_items.is_valid():
+            # Check if any line items have data (not deleted and have required fields)
+            has_line_items = False
+            for line_form in line_items.forms:
+                if line_form.cleaned_data and not line_form.cleaned_data.get('DELETE', False):
+                    # Check if line item has at least description and unit_price
+                    if (line_form.cleaned_data.get('description') and 
+                        line_form.cleaned_data.get('unit_price')):
+                        has_line_items = True
+                        break
+            
+            # If no line items and no amount provided, require amount
+            if not has_line_items and not form.cleaned_data.get('amount'):
+                form.add_error('amount', 'Either provide line items or enter an amount.')
+                return self.form_invalid(form)
+            
+            # If line items exist but no amount provided, set amount to 0 (will be calculated)
+            if has_line_items and not form.cleaned_data.get('amount'):
+                form.cleaned_data['amount'] = 0
+        else:
+            # If line items have errors, show them
+            messages.error(self.request, 'There were errors in the line items. Please correct them.')
+            return self.form_invalid(form)
+        
         # Save invoice first
         response = super().form_valid(form)
         
-        # Handle line items
-        line_items = InvoiceLineItemFormSet(self.request.POST, instance=self.object)
-        # Update formset forms to have house context for validation
-        for form in line_items.forms:
-            if house:
-                form.fields['rooms'].queryset = house.rooms.all()
-                form.fields['appliances'].queryset = house.appliances.all()
+        # Save line items after invoice is saved
+        line_items.instance = self.object
+        line_items.save()
         
-        if line_items.is_valid():
-            line_items.save()
-            # Update invoice totals from line items
-            self.object.save()  # This will recalculate from line items
-            messages.success(self.request, 'Invoice created successfully!')
-        else:
-            messages.error(self.request, 'There were errors in the line items. Please correct them.')
-            return self.form_invalid(form)
+        # Update invoice totals from line items
+        self.object.save()  # This will recalculate from line items
+        messages.success(self.request, 'Invoice created successfully!')
         
         return response
 
 
 class InvoiceUpdateView(LoginRequiredMixin, UpdateView):
     model = Invoice
+    form_class = InvoiceForm
     template_name = 'household/invoice_form.html'
-    fields = ['house', 'invoice_number', 'vendor', 'invoice_date', 'due_date', 'amount', 
-              'tax_amount', 'total_amount', 'category', 'description', 'paid', 
-              'paid_date', 'payment_method', 'invoice_file', 'related_appliance', 'notes']
     success_url = reverse_lazy('invoice_list')
 
     def get_object(self, queryset=None):
@@ -705,9 +721,8 @@ class MaintenanceTaskDetailView(LoginRequiredMixin, DetailView):
 
 class MaintenanceTaskCreateView(LoginRequiredMixin, CreateView):
     model = MaintenanceTask
+    form_class = MaintenanceTaskForm
     template_name = 'household/maintenance_task_form.html'
-    fields = ['appliance', 'task_name', 'description', 'frequency', 'interval_days',
-              'last_performed', 'estimated_duration', 'difficulty', 'parts_needed', 'instructions']
     
     def get_success_url(self):
         return reverse_lazy('appliance_detail', kwargs={'pk': self.object.appliance.pk})
@@ -726,10 +741,8 @@ class MaintenanceTaskCreateView(LoginRequiredMixin, CreateView):
 
 class MaintenanceTaskUpdateView(LoginRequiredMixin, UpdateView):
     model = MaintenanceTask
+    form_class = MaintenanceTaskForm
     template_name = 'household/maintenance_task_form.html'
-    fields = ['appliance', 'task_name', 'description', 'frequency', 'interval_days',
-              'last_performed', 'next_due', 'estimated_duration', 'difficulty', 
-              'parts_needed', 'instructions', 'is_active']
     
     def get_success_url(self):
         return reverse_lazy('appliance_detail', kwargs={'pk': self.object.appliance.pk})
